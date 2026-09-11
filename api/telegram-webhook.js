@@ -58,28 +58,18 @@ export default async function handler(req, res) {
         console.error('Error guardando mensaje:', dbError);
       }
 
-      // 3. CONSULTAR CATÁLOGO Y MÉTODOS DE PAGO
-      let productosList = [];
-      try {
-        const { data: products } = await supabase.from('productos').select('*');
-        if (products) productosList = products;
-      } catch (e) {}
-
-      let paymentsList = [];
-      try {
-        const { data: payments } = await supabase.from('metodos_pago').select('*');
-        if (payments) paymentsList = payments;
-      } catch (e) {}
-
-      // 4. DETECCIÓN DE COMPRA Y ASIGNACIÓN FORZOSA DE BOTONES
-      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini') || text.includes('si');
-      
-      let aiResponse = '';
-      let inlineKeyboard = null;
+      // 3. DETECCIÓN ABSOLUTA DE COMPRA (ANTES DE LLAMAR A LA IA)
+      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
 
       if (isBuying && clienteId) {
-        const matchedProduct = productosList[0] || { nombre: 'Gemini Advanced 18 Meses', precio: 72.00 };
-        
+        let matchedProduct = { id: null, nombre: 'Gemini Advanced 18 Meses', precio: 72.00 };
+        try {
+          const { data: products } = await supabase.from('productos').select('*');
+          if (products && products.length > 0) {
+            matchedProduct = products[0];
+          }
+        } catch (e) {}
+
         try {
           await supabase.from('pedidos').insert([{
             cliente_id: clienteId,
@@ -91,76 +81,91 @@ export default async function handler(req, res) {
           console.error('Error pedido:', orderErr);
         }
 
-        aiResponse = `🎉 *¡Excelente!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic abajo:*`;
+        const aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
 
-        if (paymentsList.length > 0) {
-          inlineKeyboard = {
-            inline_keyboard: paymentsList.map(pm => [
-              { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
-            ])
-          };
-        } else {
-          inlineKeyboard = {
-            inline_keyboard: [
-              [{ text: `💳 Transferencia Bancaria / QR`, callback_data: `pay_transferencia` }],
-              [{ text: `💳 Tarjeta de Crédito / Débito`, callback_data: `pay_tarjeta` }]
-            ]
-          };
-        }
-      }
+        let inlineKeyboard = {
+          inline_keyboard: [
+            [{ text: `💳 Transferencia Bancaria / QR`, callback_data: `pay_transferencia` }],
+            [{ text: `💳 Tarjeta de Crédito / Débito`, callback_data: `pay_tarjeta` }]
+          ]
+        };
 
-      // 5. SI NO ES COMPRA, LLAMAR A LA IA
-      if (!aiResponse) {
-        let catalogContext = productosList.length > 0 ? productosList.map(p => `- ${p.nombre} | Precio: $${p.precio} | Desc: ${p.descripcion}`).join('\n') : 'Gemini Advanced 18 Meses - $72';
-        
-        const systemPrompt = `Eres el agente de ventas de "Digital Boss". Catálogo:\n${catalogContext}\nResponde de forma comercial y breve.`;
-
-        aiResponse = '¡Hola! Bienvenido a Digital Boss. ¿En qué puedo ayudarte?';
         try {
-          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model: 'openai/gpt-oss-20b',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: rawText }
-              ],
-              temperature: 0.7
-            })
-          });
-
-          const groqData = await groqRes.json();
-          if (groqData.choices && groqData.choices.length > 0) {
-            aiResponse = groqData.choices[0].message.content;
+          const { data: payments } = await supabase.from('metodos_pago').select('*');
+          if (payments && payments.length > 0) {
+            inlineKeyboard = {
+              inline_keyboard: payments.map(pm => [
+                { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
+              ])
+            };
           }
-        } catch (aiError) {
-          aiResponse = `¡Hola! Tenemos disponible Gemini Advanced por $72. ¿Te gustaría adquirirlo?`;
+        } catch (e) {}
+
+        // Enviar respuesta inmediata con botones y salir de la función
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: aiResponse,
+            parse_mode: 'Markdown',
+            reply_markup: inlineKeyboard
+          })
+        });
+
+        return res.status(200).json({ success: true });
+      }
+
+      // 4. SI NO ES COMPRA, LLAMAR A LA IA (GROQ)
+      let catalogContext = 'Gemini Advanced 18 Meses - $72';
+      try {
+        const { data: products } = await supabase.from('productos').select('*');
+        if (products && products.length > 0) {
+          catalogContext = products.map(p => `- ${p.nombre} | Precio: $${p.precio} | Desc: ${p.descripcion}`).join('\n');
         }
+      } catch (e) {}
+
+      const systemPrompt = `Eres el agente de ventas de "Digital Boss". Catálogo:\n${catalogContext}\nResponde de forma comercial y breve.`;
+
+      let aiResponse = '¡Hola! Bienvenido a Digital Boss. ¿En qué puedo ayudarte?';
+      try {
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'openai/gpt-oss-20b',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: rawText }
+            ],
+            temperature: 0.7
+          })
+        });
+
+        const groqData = await groqRes.json();
+        if (groqData.choices && groqData.choices.length > 0) {
+          aiResponse = groqData.choices[0].message.content;
+        }
+      } catch (aiError) {
+        aiResponse = `¡Hola! Tenemos disponible Gemini Advanced por $72. ¿Te gustaría adquirirlo?`;
       }
 
-      // 6. RESPUESTA A TELEGRAM
       const token = process.env.TELEGRAM_BOT_TOKEN;
-      const payload = {
-        chat_id: chatId,
-        text: aiResponse,
-        parse_mode: 'Markdown'
-      };
-
-      if (inlineKeyboard) {
-        payload.reply_markup = inlineKeyboard;
-      }
-
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: aiResponse,
+          parse_mode: 'Markdown'
+        })
       });
     } 
-    // 7. MANEJO DE CLICS EN LOS BOTONES
+    // 5. MANEJO DE CLICS EN LOS BOTONES
     else if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
@@ -176,15 +181,17 @@ export default async function handler(req, res) {
         } else if (metodoId === 'tarjeta') {
           responseText = `*Método seleccionado: Tarjeta de Crédito / Débito*\n\n📋 *Instrucciones:* Solicita el enlace seguro de pasarela de pagos al asesor.\n\nEnvía tu comprobante o confirmación por este chat. 🚀`;
         } else {
-          const { data: pmData } = await supabase
-            .from('metodos_pago')
-            .select('*')
-            .eq('id', metodoId)
-            .single();
+          try {
+            const { data: pmData } = await supabase
+              .from('metodos_pago')
+              .select('*')
+              .eq('id', metodoId)
+              .single();
 
-          if (pmData) {
-            responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nEnvíanos tu comprobante por este medio. 🚀`;
-          }
+            if (pmData) {
+              responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nEnvíanos tu comprobante por este medio. 🚀`;
+            }
+          } catch (e) {}
         }
 
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
