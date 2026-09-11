@@ -17,7 +17,8 @@ export default async function handler(req, res) {
     if (update && update.message) {
       const chatId = update.message.chat.id;
       const rawText = update.message.text || '';
-      const text = rawText.toLowerCase().replace(/["']/g, '').trim();
+      // Limpiamos comillas, signos de interrogación y espacios extra para asegurar el match
+      const text = rawText.toLowerCase().replace(/["'¿?¡!]/g, '').trim();
       const userId = update.message.from.id;
       const userName = update.message.from.first_name || 'Cliente';
       const userUsername = update.message.from.username || '';
@@ -94,7 +95,7 @@ export default async function handler(req, res) {
         console.error('Error pagos:', payErr);
       }
 
-      // 5. DETECCIÓN DE INTENCIÓN DE COMPRA
+      // 5. DETECCIÓN DE INTENCIÓN DE COMPRA (Prioridad absoluta)
       const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini') || text.includes('si');
       
       let aiResponse = '';
@@ -115,9 +116,8 @@ export default async function handler(req, res) {
             console.error('Error pedido:', orderErr);
           }
 
-          aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en el botón correspondiente:*`;
+          aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
 
-          // Garantizar botones siempre (con datos de Supabase o respaldos directos)
           if (paymentsList.length > 0) {
             inlineKeyboard = {
               inline_keyboard: paymentsList.map(pm => [
