@@ -22,7 +22,7 @@ export default async function handler(req, res) {
       const userUsername = update.message.from.username || '';
       
       const hasPhoto = update.message.photo && update.message.photo.length > 0;
-      const rawText = update.message.text || (hasPhoto ? 'COMPROBANTE_FOTO' : '');
+      const rawText = update.message.text || '';
       const text = rawText.toLowerCase().replace(/["'¿?¡!]/g, '').trim();
 
       // 1. GESTIÓN DE CLIENTE (CRM)
@@ -52,17 +52,15 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. GUARDAR MENSAJE
-      try {
-        await supabase.from('mensajes_bot').insert([
-          { chat_id: chatId, nombre: userName, mensaje: hasPhoto ? '[FOTO COMPROBANTE]' : rawText }
-        ]);
-      } catch (dbError) {
-        console.error('Error guardando mensaje:', dbError);
-      }
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> PRIORIDAD ABSOLUTA DE VISIÓN
+      if (hasPhoto) {
+        // Guardar constancia del comprobante
+        try {
+          await supabase.from('mensajes_bot').insert([
+            { chat_id: chatId, nombre: userName, mensaje: '[FOTO COMPROBANTE]' }
+          ]);
+        } catch (dbError) {}
 
-      // 3. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN CON JSON ESTRUCTURADO
-      if (hasPhoto && clienteId) {
         const photoArray = update.message.photo;
         const bestPhoto = photoArray[photoArray.length - 1];
         const fileId = bestPhoto.file_id;
@@ -83,25 +81,25 @@ export default async function handler(req, res) {
         let productName = 'Gemini Advanced 18 Meses';
         let pedidoId = null;
 
-        try {
-          const { data: pedidoPendiente } = await supabase
-            .from('pedidos')
-            .select('*, productos(nombre)')
-            .eq('cliente_id', clienteId)
-            .eq('estado', 'ESPERANDO_PAGO')
-            .order('id', { ascending: false })
-            .limit(1)
-            .single();
+        if (clienteId) {
+          try {
+            const { data: pedidoPendiente } = await supabase
+              .from('pedidos')
+              .select('*, productos(nombre)')
+              .eq('cliente_id', clienteId)
+              .eq('estado', 'ESPERANDO_PAGO')
+              .order('id', { ascending: false })
+              .limit(1)
+              .single();
 
-          if (pedidoPendiente) {
-            expectedAmount = Number(pedidoPendiente.monto);
-            pedidoId = pedidoPendiente.id;
-            if (pedidoPendiente.productos?.nombre) {
-              productName = pedidoPendiente.productos.nombre;
+            if (pedidoPendiente) {
+              expectedAmount = Number(pedidoPendiente.monto);
+              pedidoId = pedidoPendiente.id;
+              if (pedidoPendiente.productos?.nombre) {
+                productName = pedidoPendiente.productos.nombre;
+              }
             }
-          }
-        } catch (pedErr) {
-          console.error('Error buscando pedido pendiente:', pedErr);
+          } catch (pedErr) {}
         }
 
         let extractedAmount = -1;
@@ -147,7 +145,7 @@ export default async function handler(req, res) {
           }
         }
 
-        // VALIDACIÓN MATEMÁTICA ESTRICTA: El monto detectado debe ser exactamente igual al esperado
+        // VALIDACIÓN MATEMÁTICA ESTRICTA
         const isValidAmount = (extractedAmount === expectedAmount);
 
         let responseText = '';
@@ -158,16 +156,15 @@ export default async function handler(req, res) {
               .update({ estado: 'PAGADO' })
               .eq('id', pedidoId);
           }
-          responseText = `¡Gracias por elegir Digital Boss!\n\nTu compra del *${productName}* (\$${expectedAmount}) está confirmada. El comprobante por \$${extractedAmount} fue validado correctamente. 🚀`;
+          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio: \$${expectedAmount.toFixed(2)}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: Transferencia / QR\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
         } else {
-          // RECHAZO AUTOMÁTICO INMEDIATO POR MONTO INCORRECTO O FALSO
           if (pedidoId) {
             await supabase
               .from('pedidos')
               .update({ estado: 'PAGO_RECHAZADO_MONTO' })
               .eq('id', pedidoId);
           }
-          responseText = `❌ *Pago Rechazado / Monto Incorrecto*\n\nHemos detectado un monto de *\$${extractedAmount}* en tu comprobante, pero el precio exacto de *${productName}* es de *\$${expectedAmount}*.\n\nPor favor, realiza la transferencia por el monto correcto y vuelve a enviar tu comprobante. 🤝`;
+          responseText = `❌ *Pago Rechazado / Monto Incorrecto*\n\nHemos detectado un monto de *\$${extractedAmount}* en tu comprobante, pero el precio exacto de *${productName}* es de *\$${expectedAmount.toFixed(2)}*.\n\nPor favor, realiza la transferencia por el monto correcto y vuelve a enviar tu comprobante. 🤝`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -182,6 +179,13 @@ export default async function handler(req, res) {
 
         return res.status(200).json({ success: true });
       }
+
+      // 3. GUARDAR MENSAJE DE TEXTO
+      try {
+        await supabase.from('mensajes_bot').insert([
+          { chat_id: chatId, nombre: userName, mensaje: rawText }
+        ]);
+      } catch (dbError) {}
 
       // 4. DETECCIÓN DE INTENCIÓN DE COMPRA
       const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
@@ -203,9 +207,7 @@ export default async function handler(req, res) {
               monto: matchedProduct.precio,
               estado: 'ESPERANDO_PAGO'
             }]);
-          } catch (orderErr) {
-            console.error('Error pedido:', orderErr);
-          }
+          } catch (orderErr) {}
         }
 
         const aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
