@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     if (update && update.message) {
       const chatId = update.message.chat.id;
       const rawText = update.message.text || '';
-      const text = rawText.toLowerCase().replace(/["']/g, '').trim(); // Limpia comillas y espacios
+      const text = rawText.toLowerCase().replace(/["']/g, '').trim();
       const userId = update.message.from.id;
       const userName = update.message.from.first_name || 'Cliente';
       const userUsername = update.message.from.username || '';
@@ -94,8 +94,8 @@ export default async function handler(req, res) {
         console.error('Error pagos:', payErr);
       }
 
-      // 5. DETECCIÓN DE INTENCIÓN DE COMPRA (Validación amplia)
-      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
+      // 5. DETECCIÓN DE INTENCIÓN DE COMPRA
+      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini') || text.includes('si');
       
       let aiResponse = '';
       let inlineKeyboard = null;
@@ -115,8 +115,9 @@ export default async function handler(req, res) {
             console.error('Error pedido:', orderErr);
           }
 
-          aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en el botón de abajo:*`;
+          aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en el botón correspondiente:*`;
 
+          // Garantizar botones siempre (con datos de Supabase o respaldos directos)
           if (paymentsList.length > 0) {
             inlineKeyboard = {
               inline_keyboard: paymentsList.map(pm => [
@@ -126,7 +127,8 @@ export default async function handler(req, res) {
           } else {
             inlineKeyboard = {
               inline_keyboard: [
-                [{ text: `💳 Pagar con Transferencia / QR`, callback_data: `pay_default` }]
+                [{ text: `💳 Transferencia Bancaria / QR`, callback_data: `pay_transferencia` }],
+                [{ text: `💳 Tarjeta de Crédito / Débito`, callback_data: `pay_tarjeta` }]
               ]
             };
           }
@@ -202,7 +204,11 @@ REGLAS:
         const metodoId = data.replace('pay_', '');
         let responseText = `*Método de pago seleccionado.*\n\nPor favor realiza la transferencia por el monto exacto y envíanos tu comprobante por este medio. 🚀`;
         
-        if (metodoId !== 'default') {
+        if (metodoId === 'transferencia') {
+          responseText = `*Método seleccionado: Transferencia Bancaria / QR*\n\n📋 *Instrucciones:* Realiza el pago por el monto exacto.\n💳 *Datos:* Banco Nacional / QR Oficial de Digital Boss.\n\nEnvía tu comprobante por este chat para liberar tu acceso. 🚀`;
+        } else if (metodoId === 'tarjeta') {
+          responseText = `*Método seleccionado: Tarjeta de Crédito / Débito*\n\n📋 *Instrucciones:* Solicita el enlace seguro de pasarela de pagos al asesor.\n\nEnvía tu comprobante o confirmación por este chat. 🚀`;
+        } else {
           const { data: pmData } = await supabase
             .from('metodos_pago')
             .select('*')
@@ -210,7 +216,7 @@ REGLAS:
             .single();
 
           if (pmData) {
-            responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nUna vez realizado el pago, envíanos tu comprobante por este medio para validar y liberar tu acceso de inmediato. 🚀`;
+            responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nEnvíanos tu comprobante por este medio. 🚀`;
           }
         }
 
