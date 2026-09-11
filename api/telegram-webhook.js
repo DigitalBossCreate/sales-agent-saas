@@ -61,7 +61,7 @@ export default async function handler(req, res) {
         console.error('Error guardando mensaje:', dbError);
       }
 
-      // 3. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ESTRICTO
+      // 3. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN CON JSON ESTRUCTURADO
       if (hasPhoto && clienteId) {
         const photoArray = update.message.photo;
         const bestPhoto = photoArray[photoArray.length - 1];
@@ -121,7 +121,7 @@ export default async function handler(req, res) {
                     content: [
                       {
                         type: 'text',
-                        text: `Mira detenidamente esta imagen de comprobante. Busca el número grande que indica el monto de la transferencia (por ejemplo, arriba a la derecha dice "Bs 0.10"). Extrae ese número exacto. Si ves decimales, inclúyelos. Responde únicamente con el número decimal y nada más.`
+                        text: `Analiza este comprobante de pago. Extrae el monto numérico exacto de la transferencia visible en la imagen (por ejemplo, si dice "Bs 0.10" el valor numérico es 0.10; si dice "$72.00" es 72.00). Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00}`
                       },
                       {
                         type: 'image_url',
@@ -130,20 +130,20 @@ export default async function handler(req, res) {
                     ]
                   }
                 ],
+                response_format: { type: "json_object" },
                 temperature: 0.0
               })
             });
 
             const visionData = await visionRes.json();
             if (visionData.choices && visionData.choices.length > 0) {
-              const content = visionData.choices[0].message.content.trim();
-              const matchNum = content.match(/(\d+(\.\d+)?)/);
-              if (matchNum) {
-                extractedAmount = parseFloat(matchNum[0]);
+              const jsonContent = JSON.parse(visionData.choices[0].message.content.trim());
+              if (jsonContent && typeof jsonContent.monto === 'number') {
+                extractedAmount = jsonContent.monto;
               }
             }
           } catch (visionErr) {
-            console.error('Error en análisis de visión Groq:', visionErr);
+            console.error('Error en análisis de visión JSON Groq:', visionErr);
           }
         }
 
@@ -160,7 +160,7 @@ export default async function handler(req, res) {
           }
           responseText = `¡Gracias por elegir Digital Boss!\n\nTu compra del *${productName}* (\$${expectedAmount}) está confirmada. El comprobante por \$${extractedAmount} fue validado correctamente. 🚀`;
         } else {
-          // RECHAZO CLARO Y DIRECTO
+          // RECHAZO AUTOMÁTICO INMEDIATO POR MONTO INCORRECTO O FALSO
           if (pedidoId) {
             await supabase
               .from('pedidos')
