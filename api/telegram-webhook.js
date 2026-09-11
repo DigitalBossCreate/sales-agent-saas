@@ -71,8 +71,8 @@ export default async function handler(req, res) {
         if (payments) paymentsList = payments;
       } catch (e) {}
 
-      // 4. DETECCIÓN INMEDIATA DE COMPRA (Prioridad Total antes de la IA)
-      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
+      // 4. DETECCIÓN DE COMPRA Y ASIGNACIÓN FORZOSA DE BOTONES
+      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini') || text.includes('si');
       
       let aiResponse = '';
       let inlineKeyboard = null;
@@ -91,7 +91,7 @@ export default async function handler(req, res) {
           console.error('Error pedido:', orderErr);
         }
 
-        aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
+        aiResponse = `🎉 *¡Excelente!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic abajo:*`;
 
         if (paymentsList.length > 0) {
           inlineKeyboard = {
@@ -109,7 +109,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // 5. SI NO ES INTENCIÓN DE COMPRA DIRECTA, LLAMAR A LA IA
+      // 5. SI NO ES COMPRA, LLAMAR A LA IA
       if (!aiResponse) {
         let catalogContext = productosList.length > 0 ? productosList.map(p => `- ${p.nombre} | Precio: $${p.precio} | Desc: ${p.descripcion}`).join('\n') : 'Gemini Advanced 18 Meses - $72';
         
@@ -160,7 +160,7 @@ export default async function handler(req, res) {
         body: JSON.stringify(payload)
       });
     } 
-    // 7. MANEJO DE CLICS EN LOS BOTONES INTERACTIVOS
+    // 7. MANEJO DE CLICS EN LOS BOTONES
     else if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
