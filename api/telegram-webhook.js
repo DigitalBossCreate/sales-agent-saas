@@ -19,7 +19,7 @@ export default async function handler(req, res) {
       const userName = update.message.from.first_name || 'Cliente';
       const userUsername = update.message.from.username || '';
 
-      // 1. GESTIÓN DE CLIENTE (CRM / Memoria)
+      // 1. GESTIÓN DE CLIENTE (CRM)
       let clienteId = null;
       try {
         const { data: existingClient } = await supabase
@@ -43,10 +43,10 @@ export default async function handler(req, res) {
           if (newClient) clienteId = newClient.id;
         }
       } catch (clientErr) {
-        console.error('Error gestionando cliente en CRM:', clientErr);
+        console.error('Error CRM:', clientErr);
       }
 
-      // 2. GUARDAR MENSAJE EN HISTORIAL
+      // 2. GUARDAR MENSAJE
       try {
         await supabase.from('mensajes_bot').insert([
           { chat_id: chatId, nombre: userName, mensaje: text }
@@ -55,32 +55,32 @@ export default async function handler(req, res) {
         console.error('Error guardando mensaje:', dbError);
       }
 
-      // 3. CONSULTAR CATÁLOGO ACTIVO DESDE SUPABASE
-      let catalogContext = 'No hay productos cargados en el sistema actualmente.';
+      // 3. CONSULTAR CATÁLOGO SIN FILTROS ESTRICTOS
+      let catalogContext = 'No hay productos disponibles.';
       let productosList = [];
       try {
-        const { data: products } = await supabase
+        const { data: products, error: prodErr } = await supabase
           .from('productos')
-          .select('*')
-          .eq('estado', 'ACTIVO');
+          .select('*');
+
+        if (prodErr) console.error('Error en consulta de productos:', prodErr);
 
         if (products && products.length > 0) {
           productosList = products;
           catalogContext = products.map(p => 
-            `- Producto: ${p.nombre} | SKU: ${p.sku} | Precio: $${p.precio} | Descripción: ${p.descripcion} | Tipo de Entrega: ${p.tipo_entrega}`
+            `- Producto: ${p.nombre} | SKU: ${p.sku || 'N/A'} | Precio: $${p.precio} | Descripción: ${p.descripcion} | Entrega: ${p.tipo_entrega} | Link: ${p.ubicacion_entrega || 'N/A'}`
           ).join('\n');
         }
       } catch (catErr) {
-        console.error('Error consultando catálogo:', catErr);
+        console.error('Excepción catálogo:', catErr);
       }
 
-      // 4. CONSULTAR MÉTODOS DE PAGO DISPONIBLES
+      // 4. CONSULTAR MÉTODOS DE PAGO
       let paymentContext = '';
       try {
         const { data: payments } = await supabase
           .from('metodos_pago')
-          .select('*')
-          .eq('estado', 'ACTIVO');
+          .select('*');
 
         if (payments && payments.length > 0) {
           paymentContext = payments.map(pm => 
@@ -88,27 +88,27 @@ export default async function handler(req, res) {
           ).join('\n');
         }
       } catch (payErr) {
-        console.error('Error consultando métodos de pago:', payErr);
+        console.error('Error pagos:', payErr);
       }
 
-      // 5. CONSTRUCCIÓN DEL PROMPT MAESTRO PARA LA IA
+      // 5. PROMPT MAESTRO
       const systemPrompt = `
-Eres el agente de ventas autónomo y profesional de "Digital Boss". Tu objetivo es guiar al cliente, responder dudas, ofrecer el catálogo, manejar objeciones y cerrar ventas de manera concisa y amable en Telegram.
+Eres el agente de ventas autónomo y profesional de "Digital Boss". Tu objetivo es guiar al cliente, responder dudas, ofrecer el catálogo, manejar objeciones y cerrar ventas en Telegram.
 
-CATÁLOGO DE PRODUCTOS DISPONIBLES:
+CATÁLOGO ACTUALIZADO DE PRODUCTOS:
 ${catalogContext}
 
-MÉTODOS DE PAGO DISPONIBLES:
+MÉTODOS DE PAGO:
 ${paymentContext}
 
-REGLAS DE NEGOCIO:
-- Si el cliente pregunta por precios o productos, preséntalos basándote estrictamente en la información del catálogo anterior.
-- Si el cliente muestra interés claro en comprar un producto, recuérdale el precio y dile cómo proceder al pago con los métodos disponibles.
-- Mantén un tono comercial, cercano y profesional. Respuestas directas y limpias para chat móvil de Telegram.
+REGLAS:
+- Usa estrictamente la información del catálogo anterior para responder cualquier pregunta sobre productos o precios.
+- Si el cliente pregunta por un producto, indícale su precio, detalles y cómo adquirirlo.
+- Mantén un tono comercial, cercano y profesional.
 `;
 
-      // 6. CONSULTAR A GROQ (IA)
-      let aiResponse = '¡Hola! Bienvenido a Digital Boss. ¿En qué puedo ayudarte hoy?';
+      // 6. LLAMADA A GROQ
+      let aiResponse = '¡Hola! Bienvenido a Digital Boss.';
       try {
         const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
@@ -130,16 +130,15 @@ REGLAS DE NEGOCIO:
         if (groqData.choices && groqData.choices.length > 0) {
           aiResponse = groqData.choices[0].message.content;
         } else if (groqData.error) {
-          aiResponse = `Error del sistema de IA: ${groqData.error.message}`;
+          aiResponse = `Error de IA: ${groqData.error.message}`;
         }
       } catch (aiError) {
-        aiResponse = `Excepción conectando con la IA: ${aiError.message}`;
+        aiResponse = `Excepción IA: ${aiError.message}`;
       }
 
-      // 7. DETECCIÓN DE INTENCIÓN DE COMPRA Y CREACIÓN DE PEDIDO AUTOMÁTICO
+      // 7. DETECCIÓN DE COMPRA Y REGISTRO DE PEDIDO
       const lowerText = text.toLowerCase();
-      if ((lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir') || lowerText.includes('pagar')) && clienteId) {
-        // Intentar hacer match con algún producto del catálogo
+      if ((lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir')) && clienteId) {
         const matchedProduct = productosList.find(p => lowerText.includes(p.nombre.toLowerCase()) || (p.sku && lowerText.includes(p.sku.toLowerCase())));
         
         if (matchedProduct) {
@@ -150,14 +149,14 @@ REGLAS DE NEGOCIO:
               monto: matchedProduct.precio,
               estado: 'ESPERANDO_PAGO'
             }]);
-            aiResponse += `\n\n📝 He registrado tu intención de compra para *${matchedProduct.nombre}* por un valor de $${matchedProduct.precio}. Sigue las instrucciones de pago anteriores para confirmar tu pedido.`;
+            aiResponse += `\n\n📝 Pedido registrado para *${matchedProduct.nombre}* por $${matchedProduct.precio}.`;
           } catch (orderErr) {
-            console.error('Error creando pedido:', orderErr);
+            console.error('Error pedido:', orderErr);
           }
         }
       }
 
-      // 8. ENVIAR RESPUESTA A TELEGRAM
+      // 8. RESPUESTA A TELEGRAM
       const token = process.env.TELEGRAM_BOT_TOKEN;
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
@@ -172,7 +171,7 @@ REGLAS DE NEGOCIO:
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error('Error procesando webhook:', error);
+    console.error('Error general:', error);
     return res.status(500).json({ error: error.message });
   }
 }
