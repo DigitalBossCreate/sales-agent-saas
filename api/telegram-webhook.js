@@ -26,45 +26,42 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Función para consultar a Groq con sistema de respaldo (Fallback SaaS)
+      // 2. Consultar a Groq con el modelo estandarizado y activo
       let aiResponse = '¡Hola! No pude conectar con la IA.';
-      const modelsToTry = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+      
+      try {
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              {
+                role: 'system',
+                content: 'Eres un asistente de ventas amable, profesional y conciso para un negocio digital.'
+              },
+              {
+                role: 'user',
+                content: text
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 1024
+          })
+        });
 
-      for (const modelName of modelsToTry) {
-        try {
-          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model: modelName,
-              messages: [
-                {
-                  role: 'system',
-                  content: 'Eres un asistente de ventas amable, profesional y conciso para un negocio digital.'
-                },
-                {
-                  role: 'user',
-                  content: text
-                }
-              ],
-              temperature: 0.7
-            })
-          });
-
-          const groqData = await groqRes.json();
-          
-          if (groqData.choices && groqData.choices.length > 0) {
-            aiResponse = groqData.choices[0].message.content;
-            break; // Si un modelo responde con éxito, salimos del ciclo
-          } else if (groqData.error) {
-            console.warn(`Modelo ${modelName} falló:`, groqData.error.message);
-          }
-        } catch (aiError) {
-          console.warn(`Excepción con modelo ${modelName}:`, aiError.message);
+        const groqData = await groqRes.json();
+        
+        if (groqData.choices && groqData.choices.length > 0) {
+          aiResponse = groqData.choices[0].message.content;
+        } else if (groqData.error) {
+          aiResponse = `Error de Groq: ${groqData.error.message}`;
         }
+      } catch (aiError) {
+        aiResponse = `Excepción de red: ${aiError.message}`;
       }
 
       // 3. Enviar la respuesta a Telegram
