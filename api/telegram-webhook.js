@@ -26,26 +26,29 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Descubrir dinámicamente un modelo disponible para esta API Key
+      // 2. Descubrir un modelo de lenguaje de chat válido (excluyendo guardas y clasificadores)
       let selectedModel = 'llama-3.3-70b-versatile';
       try {
         const modelsRes = await fetch('https://api.groq.com/openai/v1/models', {
           headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` }
         });
         const modelsData = await modelsRes.json();
-        if (modelsData && modelsData.data && modelsData.data.length > 0) {
-          const chatModel = modelsData.data.find(m => m.id.includes('llama') || m.id.includes('mixtral'));
+        if (modelsData && modelsData.data) {
+          const chatModel = modelsData.data.find(m => 
+            !m.id.includes('guard') && 
+            !m.id.includes('prompt') && 
+            !m.id.includes('whisper') && 
+            (m.id.includes('llama') || m.id.includes('mixtral') || m.id.includes('gemma'))
+          );
           if (chatModel) {
             selectedModel = chatModel.id;
-          } else {
-            selectedModel = modelsData.data[0].id;
           }
         }
       } catch (err) {
-        console.warn('No se pudo listar modelos, usando respaldo:', err);
+        console.warn('Usando modelo por defecto:', err);
       }
 
-      // 3. Consultar a Groq con el modelo detectado automáticamente
+      // 3. Consultar a Groq con el modelo de chat detectado
       let aiResponse = '¡Hola! No pude conectar con la IA.';
       
       try {
