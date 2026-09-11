@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://nvzovzegagabhdzqpgq.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://nvzovzegagabhdzqpgq.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -63,16 +63,20 @@ export default async function handler(req, res) {
           .from('productos')
           .select('*');
 
-        if (prodErr) console.error('Error en consulta de productos:', prodErr);
+        if (prodErr) {
+          console.error('Error en consulta de productos de Supabase:', prodErr);
+        }
 
         if (products && products.length > 0) {
           productosList = products;
           catalogContext = products.map(p => 
             `- Producto: ${p.nombre} | SKU: ${p.sku || 'N/A'} | Precio: $${p.precio} | Descripción: ${p.descripcion} | Entrega: ${p.tipo_entrega} | Link: ${p.ubicacion_entrega || 'N/A'}`
           ).join('\n');
+        } else {
+          console.warn('La tabla productos devolvió 0 resultados o hubo un problema de permisos/llaves.');
         }
       } catch (catErr) {
-        console.error('Excepción catálogo:', catErr);
+        console.error('Excepción consultando catálogo:', catErr);
       }
 
       // 4. CONSULTAR MÉTODOS DE PAGO
