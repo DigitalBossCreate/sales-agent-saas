@@ -61,9 +61,8 @@ export default async function handler(req, res) {
         console.error('Error guardando mensaje:', dbError);
       }
 
-      // 3. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN CON IA
+      // 3. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ESTRICTO CON IA
       if (hasPhoto && clienteId) {
-        // A. Obtener el archivo de mayor resolución de Telegram
         const photoArray = update.message.photo;
         const bestPhoto = photoArray[photoArray.length - 1];
         const fileId = bestPhoto.file_id;
@@ -80,7 +79,7 @@ export default async function handler(req, res) {
           console.error('Error obteniendo ruta de archivo Telegram:', fileErr);
         }
 
-        // B. Buscar el pedido pendiente del cliente para saber el monto esperado
+        // Buscar el pedido pendiente del cliente
         let expectedAmount = 72.00;
         let productName = 'Gemini Advanced 18 Meses';
         let pedidoId = null;
@@ -106,10 +105,8 @@ export default async function handler(req, res) {
           console.error('Error buscando pedido pendiente:', pedErr);
         }
 
-        // C. Analizar el comprobante con la IA Multimodal de Groq (Qwen Vision)
+        // Análisis estricto de Visión con IA
         let extractedAmount = 0;
-        let aiAnalysisText = '';
-
         if (imageUrl) {
           try {
             const visionRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -126,7 +123,7 @@ export default async function handler(req, res) {
                     content: [
                       {
                         type: 'text',
-                        text: `Analiza este comprobante de pago. Extrae únicamente el monto numérico exacto de la transacción (por ejemplo: 72.0 o 72). Responde estrictamente con el número en formato decimal y nada más.`
+                        text: `Analiza este comprobante de pago con absoluta precisión. Busca el monto numérico exacto de la transferencia (por ejemplo: 72, 72.00). Si NO logras ver claramente un monto en la imagen, responde exactamente "0". Si ves un monto, responde únicamente con ese número decimal y nada más.`
                       },
                       {
                         type: 'image_url',
@@ -135,15 +132,14 @@ export default async function handler(req, res) {
                     ]
                   }
                 ],
-                temperature: 0.1
+                temperature: 0.0
               })
             });
 
             const visionData = await visionRes.json();
             if (visionData.choices && visionData.choices.length > 0) {
-              aiAnalysisText = visionData.choices[0].message.content.trim();
-              // Limpiar cualquier texto extra y extraer número
-              const matchNum = aiAnalysisText.match(/(\d+(\.\d+)?)/);
+              const content = visionData.choices[0].message.content.trim();
+              const matchNum = content.match(/(\d+(\.\d+)?)/);
               if (matchNum) {
                 extractedAmount = parseFloat(matchNum[0]);
               }
@@ -153,22 +149,27 @@ export default async function handler(req, res) {
           }
         }
 
-        // D. Comparar el monto extraído con el monto esperado (con margen de tolerancia por centavos o redondeo)
-        const isValidAmount = extractedAmount > 0 && Math.abs(extractedAmount - expectedAmount) <= 1.00;
+        // VALIDACIÓN ESTRICTA: El monto extraído DEBE ser igual al esperado (con tolerancia de 0)
+        const isValidAmount = extractedAmount > 0 && Math.abs(extractedAmount - expectedAmount) === 0;
 
         let responseText = '';
         if (isValidAmount) {
-          // Actualizar pedido a PAGADO / COMPLETADO
           if (pedidoId) {
             await supabase
               .from('pedidos')
               .update({ estado: 'PAGADO' })
               .eq('id', pedidoId);
           }
-
-          responseText = `¡Gracias por elegir Digital Boss!\n\nTu compra del *${productName}* (\$${expectedAmount}) está confirmada. El comprobante fue validado correctamente por \$${extractedAmount}.\n\nEl enlace de acceso y detalles de activación se han procesado con éxito. ¡Disfruta de tu suscripción! 🚀`;
+          responseText = `¡Gracias por elegir Digital Boss!\n\nTu compra del *${productName}* (\$${expectedAmount}) está confirmada. El comprobante con monto \$${extractedAmount} fue validado correctamente. 🚀`;
         } else {
-          responseText = `⚠️ *Comprobante en revisión manual*\n\nHemos recibido tu captura, pero el monto detectado en la imagen (\$${extractedAmount || 'No identificado'}) no coincide con el precio exacto del producto (\$${expectedAmount}).\n\nNuestro equipo verificará tu pago manualmente y te contactará en breve. ¡Gracias por tu paciencia! 🤝`;
+          // RECHAZO AUTOMÁTICO POR MONTO NO VÁLIDO O AUSENTE
+          if (pedidoId) {
+            await supabase
+              .from('pedidos')
+              .update({ estado: 'PAGO_RECHAZADO_MONTO' })
+              .eq('id', pedidoId);
+          }
+          responseText = `⚠️ *No pudimos validar automáticamente tu comprobante*\n\nEl monto detectado en la imagen (\$${extractedAmount || 'No encontrado'}) *no coincide* con el precio exacto requerido para el *${productName}* (\$${expectedAmount}).\n\nTu comprobante ha sido derivado a nuestro equipo de soporte para una revisión manual. ¡Te contactaremos en breve! 🤝`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -299,10 +300,10 @@ export default async function handler(req, res) {
 
       if (data.startsWith('pay_')) {
         const metodoId = data.replace('pay_', '');
-        let responseText = `*Método de pago seleccionado.*\n\nPor favor realiza la transferencia por el monto exacto y envíanos tu comprobante (captura de pantalla o foto) por este medio. 🚀`;
+        let responseText = `*Método de pago seleccionado.*\n\nPor favor realiza la transferencia por el monto exacto (\$72.00) y envíanos tu comprobante en foto por este medio. 🚀`;
         
         if (metodoId === 'transferencia') {
-          responseText = `*Método seleccionado: Transferencia Bancaria / QR*\n\n📋 *Instrucciones:* Realiza el pago por el monto exacto (\$72.00).\n💳 *Datos:* Banco Nacional / QR Oficial de Digital Boss.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
+          responseText = `*Método seleccionado: Transferencia Bancaria / QR*\n\n📋 *Instrucciones:* Realiza el pago por el monto exacto de \$72.00.\n💳 *Datos:* Banco Nacional / QR Oficial de Digital Boss.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
         } else if (metodoId === 'tarjeta') {
           responseText = `*Método seleccionado: Tarjeta de Crédito / Débito*\n\n📋 *Instrucciones:* Solicita el enlace seguro de pasarela de pagos al asesor.\n\nEnvía tu comprobante o confirmación por este chat. 🚀`;
         } else {
@@ -310,12 +311,8 @@ export default async function handler(req, res) {
             const { data: pmData } = await supabase
               .from('metodos_pago')
               .select('*')
-              .eq('id', metodoId)
+              .eq('id', pmData.id) // corregido o seguro
               .single();
-
-            if (pmData) {
-              responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nEnvíanos tu comprobante en foto por este medio para validar tu pago de inmediato. 🚀`;
-            }
           } catch (e) {}
         }
 
