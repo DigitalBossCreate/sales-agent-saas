@@ -26,7 +26,26 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Consultar a Groq con el modelo oficial activo actual
+      // 2. Descubrir dinámicamente un modelo disponible para esta API Key
+      let selectedModel = 'llama-3.3-70b-versatile';
+      try {
+        const modelsRes = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` }
+        });
+        const modelsData = await modelsRes.json();
+        if (modelsData && modelsData.data && modelsData.data.length > 0) {
+          const chatModel = modelsData.data.find(m => m.id.includes('llama') || m.id.includes('mixtral'));
+          if (chatModel) {
+            selectedModel = chatModel.id;
+          } else {
+            selectedModel = modelsData.data[0].id;
+          }
+        }
+      } catch (err) {
+        console.warn('No se pudo listar modelos, usando respaldo:', err);
+      }
+
+      // 3. Consultar a Groq con el modelo detectado automáticamente
       let aiResponse = '¡Hola! No pude conectar con la IA.';
       
       try {
@@ -37,7 +56,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: selectedModel,
             messages: [
               {
                 role: 'system',
@@ -57,13 +76,13 @@ export default async function handler(req, res) {
         if (groqData.choices && groqData.choices.length > 0) {
           aiResponse = groqData.choices[0].message.content;
         } else if (groqData.error) {
-          aiResponse = `Error de Groq: ${groqData.error.message}`;
+          aiResponse = `Error de Groq (${selectedModel}): ${groqData.error.message}`;
         }
       } catch (aiError) {
         aiResponse = `Excepción de red: ${aiError.message}`;
       }
 
-      // 3. Enviar la respuesta a Telegram
+      // 4. Enviar la respuesta a Telegram
       const token = process.env.TELEGRAM_BOT_TOKEN;
       const telegramApiUrl = `https://api.telegram.org/bot${token}/sendMessage`;
 
