@@ -26,8 +26,8 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Consultar a Groq (Llama 3) de forma gratuita
-      let aiResponse = '¡Hola! Soy tu asistente virtual de ventas.';
+      // 2. Consultar a Groq con manejo de errores visible
+      let aiResponse = '¡Hola! No pude conectar con la IA.';
       
       try {
         const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -37,11 +37,11 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'llama3-8b-8192', // Modelo rápido y gratuito en Groq
+            model: 'llama3-8b-8192',
             messages: [
               {
                 role: 'system',
-                content: 'Eres un asistente de ventas amable y profesional para un negocio digital. Responde de forma breve, clara y vendedora.'
+                content: 'Eres un asistente de ventas amable, profesional y conciso para un negocio digital.'
               },
               {
                 role: 'user',
@@ -53,14 +53,17 @@ export default async function handler(req, res) {
         });
 
         const groqData = await groqRes.json();
+        
         if (groqData.choices && groqData.choices.length > 0) {
           aiResponse = groqData.choices[0].message.content;
+        } else if (groqData.error) {
+          aiResponse = `Error de Groq: ${groqData.error.message}`;
         }
       } catch (aiError) {
-        console.error('Error con Groq AI:', aiError);
+        aiResponse = `Excepción de red: ${aiError.message}`;
       }
 
-      // 3. Enviar la respuesta de la IA a Telegram
+      // 3. Enviar la respuesta a Telegram
       const token = process.env.TELEGRAM_BOT_TOKEN;
       const telegramApiUrl = `https://api.telegram.org/bot${token}/sendMessage`;
 
