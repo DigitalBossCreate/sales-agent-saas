@@ -26,7 +26,7 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Consultar a Groq con el modelo estandarizado actual
+      // 2. Consultar a Groq con el modelo de chat estable
       let aiResponse = '¡Hola! No pude conectar con la IA.';
       
       try {
@@ -37,7 +37,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'openai/gpt-oss-20b', // Modelo de producción activo y disponible en Groq
+            model: 'openai/gpt-oss-20b', // Modelo de chat estable y disponible en la capa gratuita de Groq
             messages: [
               {
                 role: 'system',
