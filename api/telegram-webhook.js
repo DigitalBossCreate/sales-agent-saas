@@ -17,7 +17,6 @@ export default async function handler(req, res) {
     if (update && update.message) {
       const chatId = update.message.chat.id;
       const rawText = update.message.text || '';
-      // Limpiamos comillas, signos de interrogación y espacios extra para asegurar el match
       const text = rawText.toLowerCase().replace(/["'¿?¡!]/g, '').trim();
       const userId = update.message.from.id;
       const userName = update.message.from.first_name || 'Cliente';
@@ -59,94 +58,62 @@ export default async function handler(req, res) {
         console.error('Error guardando mensaje:', dbError);
       }
 
-      // 3. CONSULTAR CATÁLOGO DE SUPABASE
-      let catalogContext = '';
+      // 3. CONSULTAR CATÁLOGO Y MÉTODOS DE PAGO
       let productosList = [];
       try {
-        const { data: products } = await supabase
-          .from('productos')
-          .select('*');
+        const { data: products } = await supabase.from('productos').select('*');
+        if (products) productosList = products;
+      } catch (e) {}
 
-        if (products && products.length > 0) {
-          productosList = products;
-          catalogContext = products.map(p => 
-            `- Producto: ${p.nombre} | SKU: ${p.sku || 'N/A'} | Precio: $${p.precio} | Descripción: ${p.descripcion} | Entrega: ${p.tipo_entrega}`
-          ).join('\n');
-        }
-      } catch (catErr) {
-        console.error('Excepción catálogo:', catErr);
-      }
-
-      if (!catalogContext) {
-        catalogContext = `- Producto: Gemini Advanced 18 Meses | SKU: GEM-18M | Precio: $72.00 | Descripción: Acceso oficial por 18 meses. | Entrega: ENLACE`;
-      }
-
-      // 4. CONSULTAR MÉTODOS DE PAGO DESDE SUPABASE
       let paymentsList = [];
       try {
-        const { data: payments } = await supabase
-          .from('metodos_pago')
-          .select('*');
+        const { data: payments } = await supabase.from('metodos_pago').select('*');
+        if (payments) paymentsList = payments;
+      } catch (e) {}
 
-        if (payments && payments.length > 0) {
-          paymentsList = payments;
-        }
-      } catch (payErr) {
-        console.error('Error pagos:', payErr);
-      }
-
-      // 5. DETECCIÓN DE INTENCIÓN DE COMPRA (Prioridad absoluta)
-      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini') || text.includes('si');
+      // 4. DETECCIÓN INMEDIATA DE COMPRA (Prioridad Total antes de la IA)
+      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
       
       let aiResponse = '';
       let inlineKeyboard = null;
 
       if (isBuying && clienteId) {
-        const matchedProduct = productosList.find(p => text.includes(p.nombre.toLowerCase()) || (p.sku && text.includes(p.sku.toLowerCase()))) || productosList[0];
+        const matchedProduct = productosList[0] || { nombre: 'Gemini Advanced 18 Meses', precio: 72.00 };
         
-        if (matchedProduct) {
-          try {
-            await supabase.from('pedidos').insert([{
-              cliente_id: clienteId,
-              producto_id: matchedProduct.id,
-              monto: matchedProduct.precio,
-              estado: 'ESPERANDO_PAGO'
-            }]);
-          } catch (orderErr) {
-            console.error('Error pedido:', orderErr);
-          }
+        try {
+          await supabase.from('pedidos').insert([{
+            cliente_id: clienteId,
+            producto_id: matchedProduct.id || null,
+            monto: matchedProduct.precio,
+            estado: 'ESPERANDO_PAGO'
+          }]);
+        } catch (orderErr) {
+          console.error('Error pedido:', orderErr);
+        }
 
-          aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
+        aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
 
-          if (paymentsList.length > 0) {
-            inlineKeyboard = {
-              inline_keyboard: paymentsList.map(pm => [
-                { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
-              ])
-            };
-          } else {
-            inlineKeyboard = {
-              inline_keyboard: [
-                [{ text: `💳 Transferencia Bancaria / QR`, callback_data: `pay_transferencia` }],
-                [{ text: `💳 Tarjeta de Crédito / Débito`, callback_data: `pay_tarjeta` }]
-              ]
-            };
-          }
+        if (paymentsList.length > 0) {
+          inlineKeyboard = {
+            inline_keyboard: paymentsList.map(pm => [
+              { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
+            ])
+          };
+        } else {
+          inlineKeyboard = {
+            inline_keyboard: [
+              [{ text: `💳 Transferencia Bancaria / QR`, callback_data: `pay_transferencia` }],
+              [{ text: `💳 Tarjeta de Crédito / Débito`, callback_data: `pay_tarjeta` }]
+            ]
+          };
         }
       }
 
-      // 6. SI NO ES COMPRA DIRECTA, LLAMAR A LA IA
+      // 5. SI NO ES INTENCIÓN DE COMPRA DIRECTA, LLAMAR A LA IA
       if (!aiResponse) {
-        const systemPrompt = `
-Eres el agente de ventas autónomo y profesional de "Digital Boss". Tu objetivo es guiar al cliente, responder dudas, ofrecer el catálogo y cerrar ventas en Telegram.
-
-CATÁLOGO ACTUALIZADO:
-${catalogContext}
-
-REGLAS:
-- Usa estrictamente la información del catálogo anterior.
-- Si el cliente pregunta por un producto, indícale su precio y detalles.
-`;
+        let catalogContext = productosList.length > 0 ? productosList.map(p => `- ${p.nombre} | Precio: $${p.precio} | Desc: ${p.descripcion}`).join('\n') : 'Gemini Advanced 18 Meses - $72';
+        
+        const systemPrompt = `Eres el agente de ventas de "Digital Boss". Catálogo:\n${catalogContext}\nResponde de forma comercial y breve.`;
 
         aiResponse = '¡Hola! Bienvenido a Digital Boss. ¿En qué puedo ayudarte?';
         try {
@@ -175,7 +142,7 @@ REGLAS:
         }
       }
 
-      // 7. RESPUESTA A TELEGRAM
+      // 6. RESPUESTA A TELEGRAM
       const token = process.env.TELEGRAM_BOT_TOKEN;
       const payload = {
         chat_id: chatId,
@@ -193,7 +160,7 @@ REGLAS:
         body: JSON.stringify(payload)
       });
     } 
-    // 8. MANEJO DE CLICS EN LOS BOTONES
+    // 7. MANEJO DE CLICS EN LOS BOTONES INTERACTIVOS
     else if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
