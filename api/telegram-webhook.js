@@ -26,7 +26,7 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Consultar a Groq con el modelo oficial activo
+      // 2. Consultar a Groq con el modelo disponible actual
       let aiResponse = '¡Hola! No pude conectar con la IA.';
       
       try {
@@ -37,7 +37,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'llama-3.1-8b-instant', // Modelo exacto y disponible en la capa gratuita de Groq
+            model: 'llama-3.3-70b-versatile', // Modelo activo y disponible en Groq
             messages: [
               {
                 role: 'system',
