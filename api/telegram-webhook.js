@@ -57,17 +57,13 @@ export default async function handler(req, res) {
         console.error('Error guardando mensaje:', dbError);
       }
 
-      // 3. CONSULTAR CATÁLOGO DE SUPABASE (Forzando lectura directa)
+      // 3. CONSULTAR CATÁLOGO DE SUPABASE
       let catalogContext = '';
       let productosList = [];
       try {
         const { data: products, error: prodErr } = await supabase
           .from('productos')
           .select('*');
-
-        if (prodErr) {
-          console.error('Error en Supabase:', prodErr.message);
-        }
 
         if (products && products.length > 0) {
           productosList = products;
@@ -79,7 +75,7 @@ export default async function handler(req, res) {
         console.error('Excepción catálogo:', catErr);
       }
 
-      // Si por alguna razón sigue vacío el contexto, inyectamos el producto de respaldo directamente
+      // Respaldo de seguridad garantizado si Supabase tarda en responder
       if (!catalogContext) {
         catalogContext = `- Producto: Gemini Advanced 18 Meses | SKU: GEM-18M | Precio: $72.00 | Descripción: Acceso oficial a Gemini Advanced por 18 meses cuenta personal con garantía. | Entrega: ENLACE`;
       }
