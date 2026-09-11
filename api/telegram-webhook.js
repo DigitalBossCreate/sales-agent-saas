@@ -6,7 +6,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot is running perfectly' });
   }
 
   try {
@@ -55,7 +55,7 @@ export default async function handler(req, res) {
         console.error('Error guardando mensaje:', dbError);
       }
 
-      // 3. CONSULTAR CATÁLOGO SIN FILTROS ESTRICTOS
+      // 3. CONSULTAR CATÁLOGO DE SUPABASE
       let catalogContext = 'No hay productos disponibles.';
       let productosList = [];
       try {
