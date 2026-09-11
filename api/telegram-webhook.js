@@ -109,7 +109,7 @@ ${paymentContext}
 
 REGLAS:
 - Usa estrictamente la información del catálogo anterior para responder cualquier pregunta sobre productos o precios.
-- Si el cliente muestra interés en comprar, recuérdale el precio y guíalo para seleccionar su método de pago.
+- Si el cliente muestra interés en comprar, recuérdale el precio y guíalo amablemente para que seleccione su método de pago.
 `;
 
       // 6. LLAMADA A GROQ
@@ -139,11 +139,11 @@ REGLAS:
         aiResponse = `¡Hola! Tenemos disponible Gemini Advanced por $72. ¿Te gustaría adquirirlo?`;
       }
 
-      // 7. DETECCIÓN DE COMPRA Y REGISTRO DE PEDIDO
+      // 7. DETECCIÓN DE COMPRA, REGISTRO DE PEDIDO Y BOTONES FORZADOS
       const lowerText = text.toLowerCase();
       let inlineKeyboard = null;
 
-      if ((lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir') || lowerText.includes('pagar')) && clienteId) {
+      if ((lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir') || lowerText.includes('pagar') || lowerText.includes('gemini')) && clienteId) {
         const matchedProduct = productosList.find(p => lowerText.includes(p.nombre.toLowerCase()) || (p.sku && lowerText.includes(p.sku.toLowerCase()))) || productosList[0];
         
         if (matchedProduct) {
@@ -154,14 +154,20 @@ REGLAS:
               monto: matchedProduct.precio,
               estado: 'ESPERANDO_PAGO'
             }]);
-            aiResponse += `\n\n📝 Pedido registrado para *${matchedProduct.nombre}* por $${matchedProduct.precio}.\n\nPor favor, selecciona tu método de pago preferido aquí abajo:`;
+            aiResponse += `\n\n📝 Pedido registrado para *${matchedProduct.nombre}* por $${matchedProduct.precio}.\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
 
-            // Construir botones interactivos dinámicos desde Supabase
+            // Construir botones interactivos (dinámicos o con respaldo por defecto)
             if (paymentsList.length > 0) {
               inlineKeyboard = {
                 inline_keyboard: paymentsList.map(pm => [
                   { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
                 ])
+              };
+            } else {
+              inlineKeyboard = {
+                inline_keyboard: [
+                  [{ text: `💳 Pagar con Transferencia / QR`, callback_data: `pay_default` }]
+                ]
               };
             }
           } catch (orderErr) {
@@ -198,26 +204,28 @@ REGLAS:
       if (data.startsWith('pay_')) {
         const metodoId = data.replace('pay_', '');
         
-        // Consultar detalles del método de pago seleccionado
-        const { data: pmData } = await supabase
-          .from('metodos_pago')
-          .select('*')
-          .eq('id', metodoId)
-          .single();
+        let responseText = `*Método de pago seleccionado.*\n\nPor favor realiza la transferencia por el monto exacto y envíanos tu comprobante por este medio para procesar tu acceso de inmediato. 🚀`;
+        
+        if (metodoId !== 'default') {
+          const { data: pmData } = await supabase
+            .from('metodos_pago')
+            .select('*')
+            .eq('id', metodoId)
+            .single();
 
-        let responseText = `Has seleccionado tu método de pago.`;
-        if (pmData) {
-          responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nUna vez realizado el pago, envíanos tu comprobante por este medio para validar y liberar tu acceso de inmediato. 🚀`;
+          if (pmData) {
+            responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nUna vez realizado el pago, envíanos tu comprobante por este medio para validar y liberar tu acceso de inmediato. 🚀`;
+          }
         }
 
         // Responder al click del botón para quitar el estado de carga en Telegram
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Método seleccionado!' })
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Método seleccionado con éxito!' })
         });
 
-        // Enviar instrucciones al chat
+        // Enviar instrucciones detalladas al chat
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
