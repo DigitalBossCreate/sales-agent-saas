@@ -16,7 +16,8 @@ export default async function handler(req, res) {
 
     if (update && update.message) {
       const chatId = update.message.chat.id;
-      const text = update.message.text;
+      const rawText = update.message.text || '';
+      const text = rawText.toLowerCase().replace(/["']/g, '').trim(); // Limpia comillas y espacios
       const userId = update.message.from.id;
       const userName = update.message.from.first_name || 'Cliente';
       const userUsername = update.message.from.username || '';
@@ -51,7 +52,7 @@ export default async function handler(req, res) {
       // 2. GUARDAR MENSAJE
       try {
         await supabase.from('mensajes_bot').insert([
-          { chat_id: chatId, nombre: userName, mensaje: text }
+          { chat_id: chatId, nombre: userName, mensaje: rawText }
         ]);
       } catch (dbError) {
         console.error('Error guardando mensaje:', dbError);
@@ -93,15 +94,14 @@ export default async function handler(req, res) {
         console.error('Error pagos:', payErr);
       }
 
-      // 5. DETECCIÓN DE INTENCIÓN DE COMPRA DIRECTA
-      const lowerText = text.toLowerCase();
-      const isBuying = lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir') || lowerText.includes('pagar');
+      // 5. DETECCIÓN DE INTENCIÓN DE COMPRA (Validación amplia)
+      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
       
       let aiResponse = '';
       let inlineKeyboard = null;
 
       if (isBuying && clienteId) {
-        const matchedProduct = productosList.find(p => lowerText.includes(p.nombre.toLowerCase()) || (p.sku && lowerText.includes(p.sku.toLowerCase()))) || productosList[0];
+        const matchedProduct = productosList.find(p => text.includes(p.nombre.toLowerCase()) || (p.sku && text.includes(p.sku.toLowerCase()))) || productosList[0];
         
         if (matchedProduct) {
           try {
@@ -115,8 +115,7 @@ export default async function handler(req, res) {
             console.error('Error pedido:', orderErr);
           }
 
-          // Respuesta estructurada con botones obligatorios
-          aiResponse = `🎉 *¡Excelente decisión!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en el botón de abajo:*`;
+          aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en el botón de abajo:*`;
 
           if (paymentsList.length > 0) {
             inlineKeyboard = {
@@ -134,7 +133,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // 6. SI NO ES COMPRA, LLAMAR A LA IA (GROQ)
+      // 6. SI NO ES COMPRA DIRECTA, LLAMAR A LA IA
       if (!aiResponse) {
         const systemPrompt = `
 Eres el agente de ventas autónomo y profesional de "Digital Boss". Tu objetivo es guiar al cliente, responder dudas, ofrecer el catálogo y cerrar ventas en Telegram.
@@ -159,7 +158,7 @@ REGLAS:
               model: 'openai/gpt-oss-20b',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: text }
+                { role: 'user', content: rawText }
               ],
               temperature: 0.7
             })
