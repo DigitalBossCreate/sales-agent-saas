@@ -26,7 +26,7 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Consultar a Groq con el modelo activo actual
+      // 2. Consultar a Groq con el modelo Mixtral disponible
       let aiResponse = '¡Hola! No pude conectar con la IA.';
       
       try {
@@ -37,7 +37,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'llama-3.1-8b-instant',
+            model: 'mixtral-8x7b-32768',
             messages: [
               {
                 role: 'system',
