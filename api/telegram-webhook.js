@@ -58,10 +58,10 @@ export default async function handler(req, res) {
         console.error('Error guardando mensaje:', dbError);
       }
 
-      // 3. DETECCIÓN ABSOLUTA DE COMPRA (ANTES DE LLAMAR A LA IA)
+      // 3. DETECCIÓN ABSOLUTA DE COMPRA (Prioridad Total - Sin depender de clienteId)
       const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
 
-      if (isBuying && clienteId) {
+      if (isBuying) {
         let matchedProduct = { id: null, nombre: 'Gemini Advanced 18 Meses', precio: 72.00 };
         try {
           const { data: products } = await supabase.from('productos').select('*');
@@ -70,15 +70,17 @@ export default async function handler(req, res) {
           }
         } catch (e) {}
 
-        try {
-          await supabase.from('pedidos').insert([{
-            cliente_id: clienteId,
-            producto_id: matchedProduct.id || null,
-            monto: matchedProduct.precio,
-            estado: 'ESPERANDO_PAGO'
-          }]);
-        } catch (orderErr) {
-          console.error('Error pedido:', orderErr);
+        if (clienteId) {
+          try {
+            await supabase.from('pedidos').insert([{
+              cliente_id: clienteId,
+              producto_id: matchedProduct.id || null,
+              monto: matchedProduct.precio,
+              estado: 'ESPERANDO_PAGO'
+            }]);
+          } catch (orderErr) {
+            console.error('Error pedido:', orderErr);
+          }
         }
 
         const aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
@@ -101,7 +103,6 @@ export default async function handler(req, res) {
           }
         } catch (e) {}
 
-        // Enviar respuesta inmediata con botones y salir de la función
         const token = process.env.TELEGRAM_BOT_TOKEN;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -128,7 +129,7 @@ export default async function handler(req, res) {
 
       const systemPrompt = `Eres el agente de ventas de "Digital Boss". Catálogo:\n${catalogContext}\nResponde de forma comercial y breve.`;
 
-      let aiResponse = '¡Hola! Bienvenido a Digital Boss. ¿En qué puedo ayudarte?';
+      let aiResponse = '¡Hola! Bienvenido al sistema. ¿En qué puedo ayudarte?';
       try {
         const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
