@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN (MONTO EXACTO)
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN (MONTO + DESTINATARIO TAKENOS / NIT)
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -76,7 +76,7 @@ export default async function handler(req, res) {
           console.error('Error obteniendo ruta de archivo Telegram:', fileErr);
         }
 
-        let expectedAmount = 72.00;
+        let expectedAmount = 67.00;
         let productName = 'Gemini Advanced 18 Meses';
         let pedidoId = null;
 
@@ -102,6 +102,9 @@ export default async function handler(req, res) {
         }
 
         let extractedAmount = -1;
+        let extractedDestinatario = '';
+        let extractedNit = '';
+
         if (imageUrl) {
           try {
             const visionRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -118,7 +121,11 @@ export default async function handler(req, res) {
                     content: [
                       {
                         type: 'text',
-                        text: `Analiza este comprobante de pago. Extrae únicamente el monto numérico exacto de la transferencia visible en la imagen (por ejemplo, si dice "Bs 0.10" el valor numérico es 0.10; si dice "$72.00" es 72.00). Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00}`
+                        text: `Analiza este comprobante de pago con absoluta precisión. Extrae tres datos clave:
+1. El monto numérico exacto de la transferencia (ej. 67.00).
+2. El nombre que aparece en la sección "Enviado a" (ej. Takenos o Wilfredo Cuellar).
+3. El número de NIT o CI que aparece en el comprobante (ej. 564163021).
+Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "nit": "Texto"}`
                       },
                       {
                         type: 'image_url',
@@ -135,8 +142,10 @@ export default async function handler(req, res) {
             const visionData = await visionRes.json();
             if (visionData.choices && visionData.choices.length > 0) {
               const jsonContent = JSON.parse(visionData.choices[0].message.content.trim());
-              if (jsonContent && typeof jsonContent.monto === 'number') {
-                extractedAmount = jsonContent.monto;
+              if (jsonContent) {
+                if (typeof jsonContent.monto === 'number') extractedAmount = jsonContent.monto;
+                if (typeof jsonContent.destinatario === 'string') extractedDestinatario = jsonContent.destinatario.trim();
+                if (typeof jsonContent.nit === 'string') extractedNit = jsonContent.nit.trim();
               }
             }
           } catch (visionErr) {
@@ -144,26 +153,33 @@ export default async function handler(req, res) {
           }
         }
 
-        // VALIDACIÓN MATEMÁTICA ESTRICTA DEL MONTO
-        const isValidAmount = (extractedAmount === expectedAmount);
+        // VALIDACIÓN MATEMÁTICA Y DE DESTINATARIO
+        const isAmountValid = (extractedAmount === expectedAmount);
+        
+        const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const destNorm = normalizeStr(extractedDestinatario);
+        
+        // Validar que el destinatario sea Takenos o Wilfredo Cuellar, o que el NIT coincida con el oficial (564163021)
+        const isDestinatarioValid = destNorm.includes('takenos') || destNorm.includes('wilfredo') || extractedNit.includes('564163021');
 
         let responseText = '';
-        if (isValidAmount) {
+
+        if (!isAmountValid) {
           if (pedidoId) {
-            await supabase
-              .from('pedidos')
-              .update({ estado: 'PAGADO' })
-              .eq('id', pedidoId);
+            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
           }
-          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio: \$${expectedAmount.toFixed(2)}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: Transferencia / QR\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
+          responseText = `❌ *Pago Rechazado / Monto Incorrecto*\n\nHemos detectado un monto de *Bs. ${extractedAmount}* en tu comprobante, pero el precio exacto de *${productName}* es de *Bs. ${expectedAmount.toFixed(2)}*.\n\nPor favor, realiza la transferencia por el monto correcto. 🤝`;
+        } else if (!isDestinatarioValid) {
+          if (pedidoId) {
+            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_DESTINATARIO' }).eq('id', pedidoId);
+          }
+          responseText = `❌ *Pago Rechazado / Destinatario Inválido*\n\nEl monto es correcto, pero el comprobante indica que fue enviado a *"${extractedDestinatario || 'Desconocido'}"* (NIT: ${extractedNit || 'No detectado'}), el cual no corresponde a nuestras cuentas oficiales.\n\nPor favor verifica tu pago. ⚠️`;
         } else {
+          // PAGO EXITOSO Y VALIDADO
           if (pedidoId) {
-            await supabase
-              .from('pedidos')
-              .update({ estado: 'PAGO_RECHAZADO_MONTO' })
-              .eq('id', pedidoId);
+            await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
           }
-          responseText = `❌ *Pago Rechazado / Monto Incorrecto*\n\nHemos detectado un monto de *\$${extractedAmount}* en tu comprobante, pero el precio exacto de *${productName}* es de *\$${expectedAmount.toFixed(2)}*.\n\nPor favor, realiza la transferencia por el monto correcto y vuelve a enviar tu comprobante. 🤝`;
+          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio: Bs. ${expectedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario} (NIT: ${extractedNit})\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: Takenos / QR\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -190,7 +206,7 @@ export default async function handler(req, res) {
       const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
 
       if (isBuying) {
-        let matchedProduct = { id: null, nombre: 'Gemini Advanced 18 Meses', precio: 72.00 };
+        let matchedProduct = { id: null, nombre: 'Gemini Advanced 18 Meses', precio: 67.00 };
         try {
           const { data: products } = await supabase.from('productos').select('*');
           if (products && products.length > 0) {
@@ -209,25 +225,14 @@ export default async function handler(req, res) {
           } catch (orderErr) {}
         }
 
-        const aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
+        const aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* Bs. ${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago principal haciendo clic abajo:*`;
 
         let inlineKeyboard = {
           inline_keyboard: [
-            [{ text: `💳 Transferencia Bancaria / QR`, callback_data: `pay_transferencia` }],
-            [{ text: `💳 Tarjeta de Crédito / Débito`, callback_data: `pay_tarjeta` }]
+            [{ text: `🇧🇴 Pagar con QR Takenos (Bs. 67)`, callback_data: `pay_takenos` }],
+            [{ text: `💵 Pagar con USDT Binance (USD)`, callback_data: `pay_binance` }]
           ]
         };
-
-        try {
-          const { data: payments } = await supabase.from('metodos_pago').select('*');
-          if (payments && payments.length > 0) {
-            inlineKeyboard = {
-              inline_keyboard: payments.map(pm => [
-                { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
-              ])
-            };
-          }
-        } catch (e) {}
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -244,11 +249,11 @@ export default async function handler(req, res) {
       }
 
       // 5. SI NO ES COMPRA NI FOTO, LLAMAR A LA IA (GROQ)
-      let catalogContext = 'Gemini Advanced 18 Meses - $72';
+      let catalogContext = 'Gemini Advanced 18 Meses - Bs 67';
       try {
         const { data: products } = await supabase.from('productos').select('*');
         if (products && products.length > 0) {
-          catalogContext = products.map(p => `- ${p.nombre} | Precio: $${p.precio} | Desc: ${p.descripcion}`).join('\n');
+          catalogContext = products.map(p => `- ${p.nombre} | Precio: Bs. ${p.precio} | Desc: ${p.descripcion}`).join('\n');
         }
       } catch (e) {}
 
@@ -277,7 +282,7 @@ export default async function handler(req, res) {
           aiResponse = groqData.choices[0].message.content;
         }
       } catch (aiError) {
-        aiResponse = `¡Hola! Tenemos disponible Gemini Advanced por $72. ¿Te gustaría adquirirlo?`;
+        aiResponse = `¡Hola! Tenemos disponible Gemini Advanced por Bs. 67. ¿Te gustaría adquirirlo?`;
       }
 
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -297,32 +302,31 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
-      if (data.startsWith('pay_')) {
-        const metodoId = data.replace('pay_', '');
-        let responseText = `*Método de pago seleccionado.*\n\nPor favor realiza la transferencia por el monto exacto (\$72.00) y envíanos tu comprobante en foto por este medio. 🚀`;
-        
-        if (metodoId === 'transferencia') {
-          responseText = `*Método seleccionado: Transferencia Bancaria / QR*\n\n📋 *Instrucciones:* Realiza el pago por el monto exacto de \$72.00.\n💳 *Datos:* Banco Nacional / QR Oficial de Digital Boss.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
-        } else if (metodoId === 'tarjeta') {
-          responseText = `*Método seleccionado: Tarjeta de Crédito / Débito*\n\n📋 *Instrucciones:* Solicita el enlace seguro de pasarela de pagos al asesor.\n\nEnvía tu comprobante o confirmación por este chat. 🚀`;
-        } else {
-          try {
-            const { data: pmData } = await supabase
-              .from('metodos_pago')
-              .select('*')
-              .eq('id', metodoId)
-              .single();
-
-            if (pmData) {
-              responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nEnvíanos tu comprobante en foto por este medio para validar tu pago de inmediato. 🚀`;
-            }
-          } catch (e) {}
-        }
+      if (data === 'pay_takenos') {
+        const responseText = `*Método seleccionado: QR Takenos (Bs. 67.00)*\n\n📋 *Instrucciones:* Escanea el QR oficial de Takenos o realiza la transferencia por el monto exacto de **Bs. 67.00**.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente de inmediato. 🚀`;
 
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Método seleccionado!' })
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
+        });
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: responseText,
+            parse_mode: 'Markdown'
+          })
+        });
+      } else if (data === 'pay_binance') {
+        const responseText = `*Método seleccionado: USDT Binance (TRC20)*\n\n📋 *Instrucciones:* Realiza el depósito en USDT a la siguiente dirección de red TRC20:\n\`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\nEnvía tu comprobante o captura de la transacción por este chat para validarlo. 🚀`;
+
+        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
