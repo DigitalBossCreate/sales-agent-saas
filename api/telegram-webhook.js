@@ -26,29 +26,7 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Descubrir un modelo de lenguaje de chat válido (excluyendo guardas y clasificadores)
-      let selectedModel = 'llama-3.3-70b-versatile';
-      try {
-        const modelsRes = await fetch('https://api.groq.com/openai/v1/models', {
-          headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` }
-        });
-        const modelsData = await modelsRes.json();
-        if (modelsData && modelsData.data) {
-          const chatModel = modelsData.data.find(m => 
-            !m.id.includes('guard') && 
-            !m.id.includes('prompt') && 
-            !m.id.includes('whisper') && 
-            (m.id.includes('llama') || m.id.includes('mixtral') || m.id.includes('gemma'))
-          );
-          if (chatModel) {
-            selectedModel = chatModel.id;
-          }
-        }
-      } catch (err) {
-        console.warn('Usando modelo por defecto:', err);
-      }
-
-      // 3. Consultar a Groq con el modelo de chat detectado
+      // 2. Consultar a Groq con el modelo estandarizado actual
       let aiResponse = '¡Hola! No pude conectar con la IA.';
       
       try {
@@ -59,7 +37,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: selectedModel,
+            model: 'openai/gpt-oss-20b', // Modelo de producción activo y disponible en Groq
             messages: [
               {
                 role: 'system',
@@ -79,13 +57,13 @@ export default async function handler(req, res) {
         if (groqData.choices && groqData.choices.length > 0) {
           aiResponse = groqData.choices[0].message.content;
         } else if (groqData.error) {
-          aiResponse = `Error de Groq (${selectedModel}): ${groqData.error.message}`;
+          aiResponse = `Error de Groq: ${groqData.error.message}`;
         }
       } catch (aiError) {
         aiResponse = `Excepción de red: ${aiError.message}`;
       }
 
-      // 4. Enviar la respuesta a Telegram
+      // 3. Enviar la respuesta a Telegram
       const token = process.env.TELEGRAM_BOT_TOKEN;
       const telegramApiUrl = `https://api.telegram.org/bot${token}/sendMessage`;
 
