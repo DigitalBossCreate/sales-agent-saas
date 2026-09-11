@@ -61,43 +61,40 @@ export default async function handler(req, res) {
       let catalogContext = '';
       let productosList = [];
       try {
-        const { data: products, error: prodErr } = await supabase
+        const { data: products } = await supabase
           .from('productos')
           .select('*');
 
         if (products && products.length > 0) {
           productosList = products;
           catalogContext = products.map(p => 
-            `- Producto: ${p.nombre} | SKU: ${p.sku || 'N/A'} | Precio: $${p.precio} | Descripción: ${p.descripcion} | Entrega: ${p.tipo_entrega} | Enlace: ${p.ubicacion_entrega || 'N/A'}`
+            `- Producto: ${p.nombre} | SKU: ${p.sku || 'N/A'} | Precio: $${p.precio} | Descripción: ${p.descripcion} | Entrega: ${p.tipo_entrega}`
           ).join('\n');
         }
       } catch (catErr) {
         console.error('Excepción catálogo:', catErr);
       }
 
-      // Respaldo de seguridad garantizado si Supabase tarda en responder
       if (!catalogContext) {
-        catalogContext = `- Producto: Gemini Advanced 18 Meses | SKU: GEM-18M | Precio: $72.00 | Descripción: Acceso oficial a Gemini Advanced por 18 meses cuenta personal con garantía. | Entrega: ENLACE`;
+        catalogContext = `- Producto: Gemini Advanced 18 Meses | SKU: GEM-18M | Precio: $72.00 | Descripción: Acceso oficial por 18 meses. | Entrega: ENLACE`;
       }
 
-      // 4. CONSULTAR MÉTODOS DE PAGO
+      // 4. CONSULTAR MÉTODOS DE PAGO DESDE SUPABASE
       let paymentContext = '';
+      let paymentsList = [];
       try {
         const { data: payments } = await supabase
           .from('metodos_pago')
           .select('*');
 
         if (payments && payments.length > 0) {
+          paymentsList = payments;
           paymentContext = payments.map(pm => 
-            `Método: ${pm.nombre} (${pm.moneda}) - Instrucciones: ${pm.instrucciones} | Datos: ${pm.datos_pago}`
+            `Método ID: ${pm.id} | Nombre: ${pm.nombre} (${pm.moneda}) - Instrucciones: ${pm.instrucciones} | Datos: ${pm.datos_pago}`
           ).join('\n');
         }
       } catch (payErr) {
         console.error('Error pagos:', payErr);
-      }
-
-      if (!paymentContext) {
-        paymentContext = `Método: QR / Transferencia Bancaria (BOB) - Instrucciones: Realiza la transferencia por el monto exacto.`;
       }
 
       // 5. PROMPT MAESTRO
@@ -107,12 +104,12 @@ Eres el agente de ventas autónomo y profesional de "Digital Boss". Tu objetivo 
 CATÁLOGO ACTUALIZADO DE PRODUCTOS:
 ${catalogContext}
 
-MÉTODOS DE PAGO:
+MÉTODOS DE PAGO DISPONIBLES:
 ${paymentContext}
 
 REGLAS:
 - Usa estrictamente la información del catálogo anterior para responder cualquier pregunta sobre productos o precios.
-- Si el cliente pregunta por un producto, indícale su precio, detalles y cómo adquirirlo de forma amable y comercial.
+- Si el cliente muestra interés en comprar, recuérdale el precio y guíalo para seleccionar su método de pago.
 `;
 
       // 6. LLAMADA A GROQ
@@ -144,7 +141,9 @@ REGLAS:
 
       // 7. DETECCIÓN DE COMPRA Y REGISTRO DE PEDIDO
       const lowerText = text.toLowerCase();
-      if ((lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir')) && clienteId) {
+      let inlineKeyboard = null;
+
+      if ((lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir') || lowerText.includes('pagar')) && clienteId) {
         const matchedProduct = productosList.find(p => lowerText.includes(p.nombre.toLowerCase()) || (p.sku && lowerText.includes(p.sku.toLowerCase()))) || productosList[0];
         
         if (matchedProduct) {
@@ -155,24 +154,80 @@ REGLAS:
               monto: matchedProduct.precio,
               estado: 'ESPERANDO_PAGO'
             }]);
-            aiResponse += `\n\n📝 Pedido registrado con éxito para *${matchedProduct.nombre}* por un valor de $${matchedProduct.precio}.`;
+            aiResponse += `\n\n📝 Pedido registrado para *${matchedProduct.nombre}* por $${matchedProduct.precio}.\n\nPor favor, selecciona tu método de pago preferido aquí abajo:`;
+
+            // Construir botones interactivos dinámicos desde Supabase
+            if (paymentsList.length > 0) {
+              inlineKeyboard = {
+                inline_keyboard: paymentsList.map(pm => [
+                  { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
+                ])
+              };
+            }
           } catch (orderErr) {
             console.error('Error pedido:', orderErr);
           }
         }
       }
 
-      // 8. RESPUESTA A TELEGRAM
+      // 8. RESPUESTA A TELEGRAM CON OPCIÓN DE BOTONES
       const token = process.env.TELEGRAM_BOT_TOKEN;
+      const payload = {
+        chat_id: chatId,
+        text: aiResponse,
+        parse_mode: 'Markdown'
+      };
+
+      if (inlineKeyboard) {
+        payload.reply_markup = inlineKeyboard;
+      }
+
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: aiResponse,
-          parse_mode: 'Markdown'
-        })
+        body: JSON.stringify(payload)
       });
+    } 
+    // Manejo de interacciones cuando el usuario hace clic en un botón interactivo
+    else if (update && update.callback_query) {
+      const callbackQuery = update.callback_query;
+      const chatId = callbackQuery.message.chat.id;
+      const data = callbackQuery.data;
+      const token = process.env.TELEGRAM_BOT_TOKEN;
+
+      if (data.startsWith('pay_')) {
+        const metodoId = data.replace('pay_', '');
+        
+        // Consultar detalles del método de pago seleccionado
+        const { data: pmData } = await supabase
+          .from('metodos_pago')
+          .select('*')
+          .eq('id', metodoId)
+          .single();
+
+        let responseText = `Has seleccionado tu método de pago.`;
+        if (pmData) {
+          responseText = `*Método seleccionado: ${pmData.nombre}*\n\n📋 *Instrucciones:* ${pmData.instrucciones}\n💳 *Datos de pago:* \`${pmData.datos_pago}\`\n\nUna vez realizado el pago, envíanos tu comprobante por este medio para validar y liberar tu acceso de inmediato. 🚀`;
+        }
+
+        // Responder al click del botón para quitar el estado de carga en Telegram
+        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Método seleccionado!' })
+        });
+
+        // Enviar instrucciones al chat
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: responseText,
+            parse_mode: 'Markdown'
+          })
+        });
+      }
     }
 
     return res.status(200).json({ success: true });
