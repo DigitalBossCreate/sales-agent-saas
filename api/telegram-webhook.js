@@ -27,17 +27,15 @@ export default async function handler(req, res) {
 
       // 1. GESTIÓN DE CLIENTE (CRM)
       let clienteId = null;
-      let clienteNombreRegistrado = userName;
       try {
         const { data: existingClient } = await supabase
           .from('clientes')
-          .select('id, nombre')
+          .select('id')
           .eq('telegram_id', userId)
           .single();
 
         if (existingClient) {
           clienteId = existingClient.id;
-          clienteNombreRegistrado = existingClient.nombre || userName;
           await supabase
             .from('clientes')
             .update({ ultima_interaccion: new Date(), username: userUsername, nombre: userName })
@@ -46,18 +44,15 @@ export default async function handler(req, res) {
           const { data: newClient } = await supabase
             .from('clientes')
             .insert([{ telegram_id: userId, nombre: userName, username: userUsername, estado_comercial: 'NUEVO' }])
-            .select('id, nombre')
+            .select('id')
             .single();
-          if (newClient) {
-            clienteId = newClient.id;
-            clienteNombreRegistrado = newClient.nombre || userName;
-          }
+          if (newClient) clienteId = newClient.id;
         }
       } catch (clientErr) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN (MONTO + TITULAR)
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN (MONTO EXACTO)
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -107,8 +102,6 @@ export default async function handler(req, res) {
         }
 
         let extractedAmount = -1;
-        let extractedRemitente = '';
-
         if (imageUrl) {
           try {
             const visionRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -125,10 +118,7 @@ export default async function handler(req, res) {
                     content: [
                       {
                         type: 'text',
-                        text: `Analiza este comprobante de pago. Extrae dos datos clave: 
-1. El monto numérico exacto de la transferencia (ej. 72.00 o 0.10).
-2. El nombre del remitente que aparece en el campo "Enviado por".
-Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "remitente": "Nombre detectado"}`
+                        text: `Analiza este comprobante de pago. Extrae únicamente el monto numérico exacto de la transferencia visible en la imagen (por ejemplo, si dice "Bs 0.10" el valor numérico es 0.10; si dice "$72.00" es 72.00). Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00}`
                       },
                       {
                         type: 'image_url',
@@ -145,9 +135,8 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
             const visionData = await visionRes.json();
             if (visionData.choices && visionData.choices.length > 0) {
               const jsonContent = JSON.parse(visionData.choices[0].message.content.trim());
-              if (jsonContent) {
-                if (typeof jsonContent.monto === 'number') extractedAmount = jsonContent.monto;
-                if (typeof jsonContent.remitente === 'string') extractedRemitente = jsonContent.remitente.trim();
+              if (jsonContent && typeof jsonContent.monto === 'number') {
+                extractedAmount = jsonContent.monto;
               }
             }
           } catch (visionErr) {
@@ -155,35 +144,26 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           }
         }
 
-        // VALIDACIÓN ESTRICTA: Monto exacto Y coincidencia flexible de nombres
-        const isAmountValid = (extractedAmount === expectedAmount);
-        
-        // Comprobación simple de coincidencia de nombres (al menos el primer nombre o apellido coincide)
-        const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const regNormalized = normalizeStr(clienteNombreRegistrado);
-        const remNormalized = normalizeStr(extractedRemitente);
-        
-        // Verificamos si hay coincidencia parcial lógica entre el nombre del cliente y el remitente de la foto
-        const isNameValid = remNormalized.length > 0 && (regNormalized.split(' ').some(part => part.length > 2 && remNormalized.includes(part)));
+        // VALIDACIÓN MATEMÁTICA ESTRICTA DEL MONTO
+        const isValidAmount = (extractedAmount === expectedAmount);
 
         let responseText = '';
-
-        if (!isAmountValid) {
+        if (isValidAmount) {
           if (pedidoId) {
-            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
+            await supabase
+              .from('pedidos')
+              .update({ estado: 'PAGADO' })
+              .eq('id', pedidoId);
           }
-          responseText = `❌ *Pago Rechazado / Monto Incorrecto*\n\nHemos detectado un monto de *\$${extractedAmount}* en tu comprobante, pero el precio exacto de *${productName}* es de *\$${expectedAmount.toFixed(2)}*.\n\nPor favor, realiza la transferencia por el monto correcto. 🤝`;
-        } else if (!isNameValid) {
-          if (pedidoId) {
-            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_TITULAR' }).eq('id', pedidoId);
-          }
-          responseText = `❌ *Pago Rechazado / Titular Inválido*\n\nEl monto es correcto, pero el comprobante fue emitido a nombre de *"${extractedRemitente || 'Desconocido'}"* y no coincide con el titular registrado (*${clienteNombreRegistrado}*).\n\nPor seguridad, los pagos deben provenir de una cuenta a tu nombre. Tu caso fue derivado a revisión manual. ⚠️`;
+          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio: \$${expectedAmount.toFixed(2)}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: Transferencia / QR\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
         } else {
-          // TODO VÁLIDO (MONTO Y TITULAR)
           if (pedidoId) {
-            await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
+            await supabase
+              .from('pedidos')
+              .update({ estado: 'PAGO_RECHAZADO_MONTO' })
+              .eq('id', pedidoId);
           }
-          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio: \$${expectedAmount.toFixed(2)}\nTitular: ${extractedRemitente}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: Transferencia / QR\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
+          responseText = `❌ *Pago Rechazado / Monto Incorrecto*\n\nHemos detectado un monto de *\$${extractedAmount}* en tu comprobante, pero el precio exacto de *${productName}* es de *\$${expectedAmount.toFixed(2)}*.\n\nPor favor, realiza la transferencia por el monto correcto y vuelve a enviar tu comprobante. 🤝`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -322,7 +302,7 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
         let responseText = `*Método de pago seleccionado.*\n\nPor favor realiza la transferencia por el monto exacto (\$72.00) y envíanos tu comprobante en foto por este medio. 🚀`;
         
         if (metodoId === 'transferencia') {
-          responseText = `*Método seleccionado: Transferencia Bancaria / QR*\n\n📋 *Instrucciones:* Realiza el pago por el monto exacto de \$72.00 a nombre del titular autorizado.\n💳 *Datos:* Banco Nacional / QR Oficial de Digital Boss.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
+          responseText = `*Método seleccionado: Transferencia Bancaria / QR*\n\n📋 *Instrucciones:* Realiza el pago por el monto exacto de \$72.00.\n💳 *Datos:* Banco Nacional / QR Oficial de Digital Boss.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
         } else if (metodoId === 'tarjeta') {
           responseText = `*Método seleccionado: Tarjeta de Crédito / Débito*\n\n📋 *Instrucciones:* Solicita el enlace seguro de pasarela de pagos al asesor.\n\nEnvía tu comprobante o confirmación por este chat. 🚀`;
         } else {
