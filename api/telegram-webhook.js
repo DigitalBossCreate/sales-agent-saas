@@ -80,7 +80,6 @@ export default async function handler(req, res) {
       }
 
       // 4. CONSULTAR MÉTODOS DE PAGO DESDE SUPABASE
-      let paymentContext = '';
       let paymentsList = [];
       try {
         const { data: payments } = await supabase
@@ -89,61 +88,19 @@ export default async function handler(req, res) {
 
         if (payments && payments.length > 0) {
           paymentsList = payments;
-          paymentContext = payments.map(pm => 
-            `Método ID: ${pm.id} | Nombre: ${pm.nombre} (${pm.moneda}) - Instrucciones: ${pm.instrucciones} | Datos: ${pm.datos_pago}`
-          ).join('\n');
         }
       } catch (payErr) {
         console.error('Error pagos:', payErr);
       }
 
-      // 5. PROMPT MAESTRO
-      const systemPrompt = `
-Eres el agente de ventas autónomo y profesional de "Digital Boss". Tu objetivo es guiar al cliente, responder dudas, ofrecer el catálogo, manejar objeciones y cerrar ventas en Telegram.
-
-CATÁLOGO ACTUALIZADO DE PRODUCTOS:
-${catalogContext}
-
-MÉTODOS DE PAGO DISPONIBLES:
-${paymentContext}
-
-REGLAS:
-- Usa estrictamente la información del catálogo anterior para responder cualquier pregunta sobre productos o precios.
-- Si el cliente muestra interés en comprar, recuérdale el precio y guíalo amablemente para que seleccione su método de pago.
-`;
-
-      // 6. LLAMADA A GROQ
-      let aiResponse = '¡Hola! Bienvenido a Digital Boss. ¿En qué puedo ayudarte?';
-      try {
-        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'openai/gpt-oss-20b',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: text }
-            ],
-            temperature: 0.7
-          })
-        });
-
-        const groqData = await groqRes.json();
-        if (groqData.choices && groqData.choices.length > 0) {
-          aiResponse = groqData.choices[0].message.content;
-        }
-      } catch (aiError) {
-        aiResponse = `¡Hola! Tenemos disponible Gemini Advanced por $72. ¿Te gustaría adquirirlo?`;
-      }
-
-      // 7. DETECCIÓN DE COMPRA, REGISTRO DE PEDIDO Y BOTONES FORZADOS
+      // 5. DETECCIÓN DE INTENCIÓN DE COMPRA DIRECTA
       const lowerText = text.toLowerCase();
+      const isBuying = lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir') || lowerText.includes('pagar');
+      
+      let aiResponse = '';
       let inlineKeyboard = null;
 
-      if ((lowerText.includes('comprar') || lowerText.includes('quiero') || lowerText.includes('adquirir') || lowerText.includes('pagar') || lowerText.includes('gemini')) && clienteId) {
+      if (isBuying && clienteId) {
         const matchedProduct = productosList.find(p => lowerText.includes(p.nombre.toLowerCase()) || (p.sku && lowerText.includes(p.sku.toLowerCase()))) || productosList[0];
         
         if (matchedProduct) {
@@ -154,29 +111,70 @@ REGLAS:
               monto: matchedProduct.precio,
               estado: 'ESPERANDO_PAGO'
             }]);
-            aiResponse += `\n\n📝 Pedido registrado para *${matchedProduct.nombre}* por $${matchedProduct.precio}.\n\n👇 *Selecciona tu método de pago haciendo clic en los botones de abajo:*`;
-
-            // Construir botones interactivos (dinámicos o con respaldo por defecto)
-            if (paymentsList.length > 0) {
-              inlineKeyboard = {
-                inline_keyboard: paymentsList.map(pm => [
-                  { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
-                ])
-              };
-            } else {
-              inlineKeyboard = {
-                inline_keyboard: [
-                  [{ text: `💳 Pagar con Transferencia / QR`, callback_data: `pay_default` }]
-                ]
-              };
-            }
           } catch (orderErr) {
             console.error('Error pedido:', orderErr);
+          }
+
+          // Respuesta estructurada con botones obligatorios
+          aiResponse = `🎉 *¡Excelente decisión!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* $${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago haciendo clic en el botón de abajo:*`;
+
+          if (paymentsList.length > 0) {
+            inlineKeyboard = {
+              inline_keyboard: paymentsList.map(pm => [
+                { text: `💳 Pagar con ${pm.nombre} (${pm.moneda})`, callback_data: `pay_${pm.id}` }
+              ])
+            };
+          } else {
+            inlineKeyboard = {
+              inline_keyboard: [
+                [{ text: `💳 Pagar con Transferencia / QR`, callback_data: `pay_default` }]
+              ]
+            };
           }
         }
       }
 
-      // 8. RESPUESTA A TELEGRAM CON OPCIÓN DE BOTONES
+      // 6. SI NO ES COMPRA, LLAMAR A LA IA (GROQ)
+      if (!aiResponse) {
+        const systemPrompt = `
+Eres el agente de ventas autónomo y profesional de "Digital Boss". Tu objetivo es guiar al cliente, responder dudas, ofrecer el catálogo y cerrar ventas en Telegram.
+
+CATÁLOGO ACTUALIZADO:
+${catalogContext}
+
+REGLAS:
+- Usa estrictamente la información del catálogo anterior.
+- Si el cliente pregunta por un producto, indícale su precio y detalles.
+`;
+
+        aiResponse = '¡Hola! Bienvenido a Digital Boss. ¿En qué puedo ayudarte?';
+        try {
+          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: 'openai/gpt-oss-20b',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: text }
+              ],
+              temperature: 0.7
+            })
+          });
+
+          const groqData = await groqRes.json();
+          if (groqData.choices && groqData.choices.length > 0) {
+            aiResponse = groqData.choices[0].message.content;
+          }
+        } catch (aiError) {
+          aiResponse = `¡Hola! Tenemos disponible Gemini Advanced por $72. ¿Te gustaría adquirirlo?`;
+        }
+      }
+
+      // 7. RESPUESTA A TELEGRAM
       const token = process.env.TELEGRAM_BOT_TOKEN;
       const payload = {
         chat_id: chatId,
@@ -194,7 +192,7 @@ REGLAS:
         body: JSON.stringify(payload)
       });
     } 
-    // Manejo de interacciones cuando el usuario hace clic en un botón interactivo
+    // 8. MANEJO DE CLICS EN LOS BOTONES
     else if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
@@ -203,8 +201,7 @@ REGLAS:
 
       if (data.startsWith('pay_')) {
         const metodoId = data.replace('pay_', '');
-        
-        let responseText = `*Método de pago seleccionado.*\n\nPor favor realiza la transferencia por el monto exacto y envíanos tu comprobante por este medio para procesar tu acceso de inmediato. 🚀`;
+        let responseText = `*Método de pago seleccionado.*\n\nPor favor realiza la transferencia por el monto exacto y envíanos tu comprobante por este medio. 🚀`;
         
         if (metodoId !== 'default') {
           const { data: pmData } = await supabase
@@ -218,14 +215,12 @@ REGLAS:
           }
         }
 
-        // Responder al click del botón para quitar el estado de carga en Telegram
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Método seleccionado con éxito!' })
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Método seleccionado!' })
         });
 
-        // Enviar instrucciones detalladas al chat
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
