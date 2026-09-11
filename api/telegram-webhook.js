@@ -26,7 +26,7 @@ export default async function handler(req, res) {
         console.error('Error guardando en Supabase:', dbError);
       }
 
-      // 2. Consultar a Groq con el modelo estandarizado y activo
+      // 2. Consultar a Groq con el modelo oficial activo actual
       let aiResponse = '¡Hola! No pude conectar con la IA.';
       
       try {
@@ -48,8 +48,7 @@ export default async function handler(req, res) {
                 content: text
               }
             ],
-            temperature: 0.7,
-            max_tokens: 1024
+            temperature: 0.7
           })
         });
 
