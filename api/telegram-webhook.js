@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN (MONTO + DESTINATARIO TAKENOS / NIT)
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ESTRICTO (MONTO + DESTINATARIO FLEXIBLE)
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -123,8 +123,8 @@ export default async function handler(req, res) {
                         type: 'text',
                         text: `Analiza este comprobante de pago con absoluta precisión. Extrae tres datos clave:
 1. El monto numérico exacto de la transferencia (ej. 67.00).
-2. El nombre que aparece en la sección "Enviado a" (ej. Takenos o Wilfredo Cuellar).
-3. El número de NIT o CI que aparece en el comprobante (ej. 564163021).
+2. El nombre o entidad que aparece en el campo "Enviado a" o destinatario (ej. Takenos, Wilfredo Cuellar Nohe, Yolo Pago, etc.).
+3. El número de NIT, CI o celular de destino si aparece visible.
 Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "nit": "Texto"}`
                       },
                       {
@@ -159,8 +159,14 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const destNorm = normalizeStr(extractedDestinatario);
         
-        // Validar que el destinatario sea Takenos o Wilfredo Cuellar, o que el NIT coincida con el oficial (564163021)
-        const isDestinatarioValid = destNorm.includes('takenos') || destNorm.includes('wilfredo') || extractedNit.includes('564163021');
+        // Acepta Takenos, Wilfredo Cuellar, Yolo Pago o el NIT oficial (564163021)
+        const isDestinatarioValid = (
+          destNorm.includes('takenos') || 
+          destNorm.includes('wilfredo cuellar') || 
+          destNorm.includes('yolo pago') || 
+          extractedNit.includes('564163021') ||
+          extractedNit.includes('62211864')
+        );
 
         let responseText = '';
 
@@ -173,13 +179,13 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_DESTINATARIO' }).eq('id', pedidoId);
           }
-          responseText = `❌ *Pago Rechazado / Destinatario Inválido*\n\nEl monto es correcto, pero el comprobante indica que fue enviado a *"${extractedDestinatario || 'Desconocido'}"* (NIT: ${extractedNit || 'No detectado'}), el cual no corresponde a nuestras cuentas oficiales.\n\nPor favor verifica tu pago. ⚠️`;
+          responseText = `❌ *Pago Rechazado / Destinatario Inválido*\n\nEl monto es correcto, pero el comprobante indica que fue enviado a *"${extractedDestinatario || 'Desconocido'}"*, el cual no corresponde a nuestras cuentas oficiales.\n\nPor favor verifica tu pago. ⚠️`;
         } else {
           // PAGO EXITOSO Y VALIDADO
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
           }
-          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio: Bs. ${expectedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario} (NIT: ${extractedNit})\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: Takenos / QR\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
+          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio: Bs. ${expectedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: QR / Transferencia\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -303,7 +309,7 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
       if (data === 'pay_takenos') {
-        const responseText = `*Método seleccionado: QR Takenos (Bs. 67.00)*\n\n📋 *Instrucciones:* Escanea el QR oficial de Takenos o realiza la transferencia por el monto exacto de **Bs. 67.00**.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente de inmediato. 🚀`;
+        const responseText = `*Método seleccionado: QR Takenos / Bs. 67.00*\n\n📋 *Instrucciones:* Realiza la transferencia por el monto exacto de **Bs. 67.00** a nombre de **Wilfredo Cuellar Nohe** (Cel: 62211864) o mediante el QR de Takenos.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
 
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
