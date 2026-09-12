@@ -47,20 +47,44 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. ¿Qué herramienta te gustaría consultar o potenciar hoy? (Ej: *Gemini*) 🚀`, 
+            text: `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. ¿Qué herramienta te gustaría consultar o ver en acción hoy? (Ej: *Gemini*) 🚀`, 
             parse_mode: 'Markdown' 
           })
         });
         return res.status(200).json({ success: true });
       }
 
-      // Manejo específico de objeciones sobre caídas, seguridad o confianza
+      // Envío de video de persuasión desde la base de datos
+      if (text.includes('video') || text.includes('demosturacion') || text.includes('muestra') || text.includes('como funciona') || text.includes('ver')) {
+        const productos = await obtenerProductos();
+        const productoPrincipal = productos[0];
+        const videoUrl = productoPrincipal.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
+
+        await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            video: videoUrl,
+            caption: `🎥 *Mira Gemini Advanced en acción.*\n\nCon esta potencia podrás redactar, programar y resolver cualquier tarea compleja al instante.\n\n💰 Inversión única: *Bs. ${productoPrincipal.precio}* (18 Meses)\n\n¿Te gustaría adquirirlo ahora? 👇`,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `🛒 ¡Sí, Comprar Ahora!`, callback_data: `start_purchase_${productoPrincipal.id}` }]
+              ]
+            }
+          })
+        });
+        return res.status(200).json({ success: true });
+      }
+
+      // Manejo específico de objeciones sobre seguridad / garantías
       if (text.includes('cae') || text.includes('garantia') || text.includes('seguro') || text.includes('estafa') || text.includes('perder')) {
         const productos = await obtenerProductos();
         const productoPrincipal = productos[0];
 
         const objecionRespuesta = `Comprendo perfectamente tu preocupación por la estabilidad, *${userName}* 🤝.\n\n` +
-          `Te cuento que con nuestro acceso a **Gemini Advanced** cuentas con estabilidad garantizada y soporte técnico durante tus 18 meses completos. No trabajamos con métodos frágiles; aseguramos que tu cuenta opere de forma continua y sin sorpresas.\n\n` +
+          `Te cuento que con nuestro acceso a **Gemini Advanced** cuentas con estabilidad garantizada y soporte técnico durante tus 18 meses completos. No trabajamos con métodos frágiles.\n\n` +
           `💰 Inversión única: **Bs. ${productoPrincipal.precio}**\n\n` +
           `¿Te gustaría que avancemos con tu acceso seguro? 👇`;
 
@@ -81,7 +105,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Solicitud general de información o detalles del producto
+      // Solicitud general de información
       const isInfoQuery = text.includes('informacion') || text.includes('info') || text.includes('detalles') || text.includes('que es') || text.includes('cuanto cuesta') || text.includes('precio');
       const isProductQuery = text.includes('gemin') || text.includes('gemeni') || text.includes('ia');
 
@@ -92,12 +116,13 @@ export default async function handler(req, res) {
         const ventasTexto = `💡 *Información Oficial - ${productoPrincipal.nombre}*\n\n` +
           `✨ *¿Por qué elegirnos?*\n` +
           `• *18 Meses de Acceso Continuo:* Olvídate de renovaciones mensuales caras.\n` +
-          `• *Potencia Máxima:* Accede al modelo más avanzado de Google para programación, redacción y proyectos complejos.\n\n` +
+          `• *Potencia Máxima:* Accede al modelo más avanzado de Google.\n\n` +
           `🛡️ *Garantía y Seguridad:*\n` +
           `• Soporte y estabilidad garantizada durante todo tu periodo.\n` +
-          `• Entrega inmediata al verificar tu pago local o cripto.\n\n` +
+          `• Entrega inmediata al verificar tu pago.\n\n` +
           `💰 *Inversión única:* Bs. ${productoPrincipal.precio}\n\n` +
-          `¿Listo para dar el salto y llevar tu productividad al siguiente nivel? 👇`;
+          `💡 *Tip:* Escribe *"ver video"* si deseas una demostración visual de cómo opera.\n\n` +
+          `¿Listo para dar el salto? 👇`;
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -109,7 +134,7 @@ export default async function handler(req, res) {
             reply_markup: {
               inline_keyboard: [
                 [{ text: `🛒 ¡Lo quiero, Comprar Ahora!`, callback_data: `start_purchase_${productoPrincipal.id}` }],
-                [{ text: `❓ Tengo otra duda / Pregunta frecuente`, callback_data: `faq_gemini_${productoPrincipal.id}` }]
+                [{ text: `🎥 Ver Demostración en Video`, callback_data: `send_demo_video_${productoPrincipal.id}` }]
               ]
             }
           })
@@ -162,14 +187,18 @@ export default async function handler(req, res) {
         body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Procesando...' })
       });
 
-      if (data.startsWith('faq_gemini_')) {
-        const prodId = data.replace('faq_gemini_', '');
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      if (data.startsWith('send_demo_video_')) {
+        const prodId = data.replace('send_demo_video_', '');
+        const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
+        const videoUrl = prodData?.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
+
+        await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            chat_id: chatId, 
-            text: `📌 *Preguntas Frecuentes:*\n\n1️⃣ *¿Cuándo recibo el acceso?* \nInmediatamente después de que el admin verifique tu comprobante de pago.\n\n2️⃣ *¿Funciona en mi cuenta personal?* \nSí, de forma segura y privada.\n\n¿Te queda alguna otra duda o avanzamos con tu compra? 🚀`, 
+          body: JSON.stringify({
+            chat_id: chatId,
+            video: videoUrl,
+            caption: `🎥 *Demostración en Vivo de Gemini Advanced*\n\nDisfruta de toda la potencia de la IA de Google.\n\n¿Deseas adquirirlo ahora? 👇`,
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
