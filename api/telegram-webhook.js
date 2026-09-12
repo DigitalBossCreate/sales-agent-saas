@@ -222,50 +222,51 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
+      // Responder de inmediato al callback para quitar el estado de carga del botón
+      await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Método seleccionado!' })
+      });
+
       if (data === 'pay_takenos') {
-        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
-        });
-
         const qrTakenosUrl = `${VERCEL_URL}/takenos.jpeg`;
-        const captionText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📸 Escanea este QR o transfiere y **envía tu comprobante en foto** por este chat. 🚀`;
+        const takenosText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📲 *Haz clic en el botón de abajo para ver y escanear el QR:*`;
 
-        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        const takenosKeyboard = {
+          inline_keyboard: [
+            [{ text: `🔍 Ver QR de Takenos en Pantalla`, url: qrTakenosUrl }]
+          ]
+        };
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            photo: qrTakenosUrl, 
-            caption: captionText, 
-            parse_mode: 'Markdown' 
+            text: takenosText, 
+            parse_mode: 'Markdown',
+            reply_markup: takenosKeyboard 
           })
         });
       } 
       else if (data === 'pay_binance') {
-        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
-        });
-
         const qrBinanceUrl = `${VERCEL_URL}/binance.jpeg`;
-        const captionText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n👇 Escanea el QR y haz clic en el botón de abajo una vez realizado tu pago:`;
+        const binanceText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n📲 *Haz clic en el botón de abajo para ver el QR de Binance:*`;
 
         const binanceKeyboard = {
           inline_keyboard: [
+            [{ text: `🔍 Ver QR de Binance en Pantalla`, url: qrBinanceUrl }],
             [{ text: `🔔 Ya pagué en Binance (Avisar al Admin)`, callback_data: `notify_binance_${chatId}` }]
           ]
         };
 
-        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            photo: qrBinanceUrl, 
-            caption: captionText, 
+            text: binanceText, 
             parse_mode: 'Markdown', 
             reply_markup: binanceKeyboard 
           })
@@ -273,12 +274,6 @@ export default async function handler(req, res) {
       } 
       else if (data.startsWith('notify_binance_')) {
         const targetClientChatId = data.replace('notify_binance_', '');
-
-        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Aviso enviado al administrador!' })
-        });
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -307,12 +302,6 @@ export default async function handler(req, res) {
       else if (data.startsWith('admin_approve_')) {
         const targetClientChatId = data.replace('admin_approve_', '');
 
-        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Aprobado!' })
-        });
-
         try {
           await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('estado', 'ESPERANDO_PAGO');
         } catch (e) {}
@@ -331,12 +320,6 @@ export default async function handler(req, res) {
       }
       else if (data.startsWith('admin_reject_')) {
         const targetClientChatId = data.replace('admin_reject_', '');
-
-        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Rechazado.' })
-        });
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
