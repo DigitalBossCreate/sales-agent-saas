@@ -37,7 +37,7 @@ export default async function handler(req, res) {
       const textLower = text.toLowerCase();
 
       // =========================================================================
-      // 1. DETECCIÓN PRIORITARIA DE ADMINISTRADOR (Va antes que todo lo demás)
+      // REGLA DE ORO / BLOQUE DE ADMIN Y ASISTENTE GUIADO (Sin tocar lo demás)
       // =========================================================================
       if (textLower === '/admin' || textLower === 'soy el admin' || textLower.startsWith('/nuevo') || textLower === '/catalogo_admin' || textLower.startsWith('/eliminar ')) {
         await gestionarCliente(userId, userName, userUsername);
@@ -381,7 +381,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      const defaultMsg = 'Estoy aquí para ayudarte a elegir la mejor herramienta o curso digital. Cuéntame, ¿qué deseas consultar? 😊';
+      const defaultMsg = 'Estoy aquí para ayudarte a elegir la mejor herramienta o curso digital. Cuéntame, چه deseas consultar? 😊';
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
