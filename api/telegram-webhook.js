@@ -47,16 +47,50 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `¡Hola, *${userName}*! 👋 Bienvenido a nuestro asistente de ventas digital. ¿En qué producto estás interesado hoy? (Por ejemplo: *Gemini*) 🚀`, 
+            text: `¡Hola, *${userName}*! 👋 Bienvenido a nuestro asistente digital. ¿En qué producto o inteligencia artificial estás interesado hoy? (Por ejemplo: *Gemini*) 🚀`, 
             parse_mode: 'Markdown' 
           })
         });
         return res.status(200).json({ success: true });
       }
 
-      // Interés por el producto (tolerante a errores tipográficos)
-      const isProductQuery = text.includes('gemin') || text.includes('gemeni') || text.includes('comprar') || text.includes('producto') || text.includes('ia');
-      if (isProductQuery) {
+      // Si el cliente pide INFORMACIÓN sobre el producto
+      const isInfoQuery = text.includes('informacion') || text.includes('info') || text.includes('detalles') || text.includes('que es') || text.includes('cuanto cuesta');
+      const isProductQuery = text.includes('gemin') || text.includes('gemeni') || text.includes('ia');
+
+      if (isInfoQuery || (isProductQuery && !text.includes('comprar'))) {
+        const productos = await obtenerProductos();
+        const productoPrincipal = productos[0];
+
+        const infoText = `💡 *Información Oficial - ${productoPrincipal.nombre}*\n\n` +
+          `✨ *¿Qué incluye?*\n` +
+          `• Acceso completo y premium a Gemini Advanced durante 18 meses.\n` +
+          `• Máxima potencia de razonamiento y análisis de Google.\n` +
+          `• Privacidad y soporte garantizado.\n\n` +
+          `🛡️ *Garantía Digital Boss:*\n` +
+          `Servicio 100% estable y entrega inmediata al verificar tu pago.\n\n` +
+          `💰 *Inversión única:* Bs. ${productoPrincipal.precio}\n\n` +
+          `¿Listo para potenciar tu productividad? Haz clic abajo para adquirirlo 👇`;
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: infoText, 
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `🛒 ¡Quiero Comprar Ahora!`, callback_data: `start_purchase_${productoPrincipal.id}` }]
+              ]
+            }
+          })
+        });
+        return res.status(200).json({ success: true });
+      }
+
+      // Si escribe directamente que quiere comprar
+      if (text.includes('comprar') || text.includes('adquirir')) {
         const productos = await obtenerProductos();
         const productoPrincipal = productos[0];
 
@@ -83,7 +117,7 @@ export default async function handler(req, res) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           chat_id: chatId, 
-          text: 'Cuéntame, ¿qué producto te gustaría consultar u adquirir hoy? 😊', 
+          text: 'Cuéntame, ¿qué información necesitas o qué producto te gustaría consultar hoy? 😊', 
           parse_mode: 'Markdown' 
         })
       });
@@ -97,10 +131,32 @@ export default async function handler(req, res) {
       await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Cargando método de pago...' })
+        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Procesando...' })
       });
 
-      if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
+      // Si el usuario hizo clic en "Quiero Comprar" desde el mensaje de información
+      if (data.startsWith('start_purchase_')) {
+        const prodId = data.replace('start_purchase_', '');
+        const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
+        const prod = productoPrincipal || { id: prodId, nombre: 'Gemini Advanced', precio: 67 };
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: `🎉 *¡Excelente elección!*\n\n📦 *${prod.nombre}*\n💰 *Precio:* Bs. ${prod.precio}\n\n👇 Selecciona tu método de pago preferido:`, 
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${prod.precio})`, callback_data: `pay_takenos_${prod.id}` }],
+                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${prod.id}` }]
+              ]
+            }
+          })
+        });
+      }
+      else if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
         const parts = data.split('_');
         const method = parts[1]; // takenos o binance
         const prodId = parts[2];
@@ -108,7 +164,6 @@ export default async function handler(req, res) {
         const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
         const prod = productoPrincipal || { id: prodId, nombre: 'Gemini Advanced', precio: 67, imagen_url: '', qr_binance_url: '' };
 
-        // Seleccionar QR según el botón pulsado
         const qrUrl = method === 'takenos' ? prod.imagen_url : (prod.qr_binance_url || prod.imagen_url);
 
         try {
