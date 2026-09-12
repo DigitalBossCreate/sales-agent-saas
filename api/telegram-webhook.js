@@ -17,36 +17,29 @@ export default async function handler(req, res) {
 
     if (update && update.message) {
       const chatId = update.message.chat.id.toString();
-      const text = (update.message.text || '').trim();
-      const textLower = text.toLowerCase();
+      const text = (update.message.text || '').trim().toLowerCase();
 
-      // ==========================================
-      // 1. COMANDO ADMIN (Prioridad absoluta)
-      // ==========================================
-      if (textLower === '/admin' || textLower === 'soy el admin' || textLower === '/nuevo') {
-        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n🛠️ *Comandos Disponibles:*\n• /nuevo (Crear producto guiado)\n• /catalogo_admin (Ver productos)\n• /eliminar [ID] (Borrar producto)`;
-        
+      // Si escribes admin, responde de inmediato sin importar nada más
+      if (text === '/admin' || text === 'soy el admin' || text === '/nuevo') {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: adminMsg, 
+            text: `🔐 *¡Panel de Administrador Activo!*\n\nTu Chat ID es: \`${chatId}\`\nEl bot está respondiendo correctamente. 🚀`, 
             parse_mode: 'Markdown' 
           })
         });
         return res.status(200).json({ success: true });
       }
 
-      // ==========================================
-      // 2. FLUJO NORMAL DEL BOT
-      // ==========================================
+      // Respuesta normal para cualquier otra cosa
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           chat_id: chatId, 
-          text: `¡Hola! Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. Escribe */admin* para ver el panel de control. 😊`, 
+          text: `Mensaje recibido: "${text}". Escribe */admin* para entrar al panel.`, 
           parse_mode: 'Markdown' 
         })
       });
@@ -54,7 +47,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error('Error general:', error);
+    console.error('Error:', error);
     return res.status(500).json({ error: error.message });
   }
 }
