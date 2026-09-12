@@ -9,7 +9,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '';
 
-// Función auxiliar para registrar mensajes en la memoria de chat
 async function guardarMensajeHistorial(telegramId, rol, mensaje) {
   try {
     await supabase.from('historial_chat').insert([{
@@ -17,9 +16,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
       rol: rol,
       mensaje: mensaje
     }]);
-  } catch (e) {
-    console.error('Error guardando historial:', e.message);
-  }
+  } catch (e) {}
 }
 
 export default async function handler(req, res) {
@@ -39,11 +36,30 @@ export default async function handler(req, res) {
       const text = (update.message.text || '').toLowerCase().trim();
 
       const clienteId = await gestionarCliente(userId, userName, userUsername);
-
-      // Guardar mensaje entrante del usuario en el historial
       await guardarMensajeHistorial(userId, 'user', text);
 
-      // --- FILTRO INTELIGENTE DE PAUSA (Si el bot está esperando el correo para activación manual) ---
+      // --- COMANDO DE ADMIN PARA LIBERAR AL CLIENTE ---
+      if (text.startsWith('/liberar ')) {
+        const targetId = text.replace('/liberar ', '').trim();
+        await supabase.from('clientes').update({ estado_chat: 'ACTIVO' }).eq('telegram_id', targetId);
+        
+        // Al liberar, el admin despierta al bot para lanzar el upsell al cliente
+        const mensajeUpsell = `🎁 *¡Activación completada con éxito!*\n\nYa puedes disfrutar de tu cuenta. Y ya que confiaste en nosotros, ¿te gustaría complementar tu ecosistema digital con otra herramienta o curso con descuento? Escribe *"ver catálogo"*. 🔥`;
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: targetId, text: mensajeUpsell, parse_mode: 'Markdown' })
+        });
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: `✅ Cliente ${targetId} liberado y upsell enviado correctamente.` })
+        });
+        return res.status(200).json({ success: true });
+      }
+
+      // --- FILTRO ESTRICTO DE PAUSA (Si el bot está esperando el correo para activación manual) ---
       const { data: clienteInfo } = await supabase
         .from('clientes')
         .select('estado_chat')
@@ -51,23 +67,32 @@ export default async function handler(req, res) {
         .single();
 
       if (clienteInfo && clienteInfo.estado_chat === 'ESPERANDO_CORREO') {
+        // 1. Notificar al admin el correo que mandó el cliente
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: ADMIN_CHAT_ID || chatId,
-            text: `✉️ *Correo recibido del cliente (\`${chatId}\`)*:\n\n\`${update.message.text}\`\n\n_Realiza la activación manual y luego libera al cliente._`,
+            text: `✉️ *Correo recibido del cliente (\`${chatId}\`)*:\n\n\`${update.message.text}\`\n\n_Realiza la activación y luego escribe:_ \`/liberar ${chatId}\``,
             parse_mode: 'Markdown'
           })
         });
 
-        const respuestaCorreo = `¡Perfecto! Hemos registrado tu correo. En unos minutos te enviaremos tus datos de acceso listos. 🚀`;
+        // 2. Pedir paciencia al cliente y PONER AL BOT EN PAUSA ABSOLUTA (Cambiamos el estado a 'EN_ESPERA_ENTREGA')
+        await supabase.from('clientes').update({ estado_chat: 'EN_ESPERANDO_ENTREGA' }).eq('telegram_id', userId);
+
+        const respuestaPaciencia = `⏳ *¡Correo recibido correctamente!*\n\nEstamos procesando tu pedido y preparando tu acceso manual. Por favor ten un poco de paciencia; en breve te enviaremos tus datos listos por aquí. 🚀`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: respuestaCorreo })
+          body: JSON.stringify({ chat_id: chatId, text: respuestaPaciencia, parse_mode: 'Markdown' })
         });
-        await guardarMensajeHistorial(userId, 'assistant', respuestaCorreo);
+        await guardarMensajeHistorial(userId, 'assistant', respuestaPaciencia);
+        return res.status(200).json({ success: true });
+      }
+
+      // Si el cliente sigue escribiendo mientras está en espera de entrega, el bot se mantiene en silencio absoluto
+      if (clienteInfo && clienteInfo.estado_chat === 'EN_ESPERANDO_ENTREGA') {
         return res.status(200).json({ success: true });
       }
       // --------------------------------------------------------------------------------------------
@@ -83,19 +108,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Comando de admin para liberar al cliente si se quedó en pausa
-      if (text.startsWith('/liberar ')) {
-        const targetId = text.replace('/liberar ', '').trim();
-        await supabase.from('clientes').update({ estado_chat: 'ACTIVO' }).eq('telegram_id', targetId);
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: `✅ Cliente ${targetId} liberado y bot activado nuevamente.` })
-        });
-        return res.status(200).json({ success: true });
-      }
-
-      // Consultar últimas interacciones del usuario para evaluar contexto
+      // Consultar historial para contexto
       const { data: historialReciente } = await supabase
         .from('historial_chat')
         .select('mensaje, rol')
@@ -106,7 +119,7 @@ export default async function handler(req, res) {
       const contextoPrevio = historialReciente ? historialReciente.map(h => h.mensaje).join(' ') : '';
       const hablabaDeProducto = contextoPrevio.includes('gemin') || contextoPrevio.includes('ia') || contextoPrevio.includes('curso');
 
-      // Saludo amigable general (Solo si no hay contexto previo de producto)
+      // Saludo amigable general
       if ((text === 'hola' || text === 'buenas' || text === 'buenas tardes' || text === 'buenas noches' || text === 'start' || text === '/start') && !hablabaDeProducto) {
         const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. ¿Qué herramienta o curso te gustaría consultar hoy? (Ej: *Gemini*) 🚀`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -144,7 +157,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Manejo de preguntas sobre correo personal, activación o garantías (Contexto persistente)
+      // Manejo de preguntas sobre correo personal, activación o garantías
       if (text.includes('correo') || text.includes('personal') || text.includes('activa') || text.includes('cae') || text.includes('garantia') || text.includes('seguro') || (hablabaDeProducto && (text.includes('si') || text.includes('como') || text.includes('donde')))) {
         const productos = await obtenerProductos();
         const productoPrincipal = productos[0];
@@ -389,7 +402,22 @@ export default async function handler(req, res) {
               parse_mode: 'Markdown' 
             })
           });
+
+          // Si es automático, lanzamos el upsell de inmediato tras la entrega
+          setTimeout(async () => {
+            await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                chat_id: targetChatId, 
+                text: `🎁 *¡Oferta exclusiva VIP!*\n\n¿Te gustaría complementar tu aprendizaje con más herramientas o cursos con descuento? Escribe *"ver catálogo"*. 🔥`, 
+                parse_mode: 'Markdown' 
+              })
+            });
+          }, 2000);
+
         } else {
+          // Si es manual: Ponemos al cliente en estado 'ESPERANDO_CORREO' para que su siguiente mensaje sea capturado
           await supabase.from('clientes').update({ estado_chat: 'ESPERANDO_CORREO' }).eq('telegram_id', targetChatId);
 
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -402,18 +430,6 @@ export default async function handler(req, res) {
             })
           });
         }
-
-        setTimeout(async () => {
-          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              chat_id: targetChatId, 
-              text: `🎁 *¡Oferta exclusiva VIP!*\n\n¿Te gustaría complementar tu aprendizaje con más herramientas o cursos con descuento? Escribe *"ver catálogo"*. 🔥`, 
-              parse_mode: 'Markdown' 
-            })
-          });
-        }, 2000);
       }
     }
 
