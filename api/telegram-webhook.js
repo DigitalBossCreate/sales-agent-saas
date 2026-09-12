@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ESTRICTO (MONTO + DESTINATARIO)
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ROBUSTO
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -101,9 +101,9 @@ export default async function handler(req, res) {
           } catch (pedErr) {}
         }
 
-        let extractedAmount = -1;
+        let extractedAmount = 0;
         let extractedDestinatario = '';
-        let extractedNit = '';
+        let extractedInfo = '';
 
         if (imageUrl) {
           try {
@@ -121,11 +121,11 @@ export default async function handler(req, res) {
                     content: [
                       {
                         type: 'text',
-                        text: `Analiza este comprobante de pago con absoluta precisión. Extrae tres datos clave:
-1. El monto numérico exacto de la transferencia (ej. 67.00).
-2. El nombre que aparece en la sección "Para" o "Enviado a" (ej. CUELLAR NOHE WILFREDO, Takenos, etc.).
-3. El número de cuenta o NIT/CI si aparece visible (ej. 62211864).
-Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "nit": "Texto"}`
+                        text: `Analiza este comprobante de transferencia o pago. Extrae con máxima atención:
+1. El monto exacto de dinero (busca etiquetas como "Monto", "Bs", valores numéricos grandes de pago. Si dice "Bs 60.00", extrae 60.00).
+2. El nombre del destinatario, cuenta o datos a quien se envía (ej. Wilfredo Cuellar, Takenos, Cuellar Nohe, etc.).
+3. Cualquier número de cuenta, celular, CI o NIT visible en el comprobante (ej. 62211864 o 6207125).
+Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "identificador": "Texto"}`
                       },
                       {
                         type: 'image_url',
@@ -145,7 +145,7 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
               if (jsonContent) {
                 if (typeof jsonContent.monto === 'number') extractedAmount = jsonContent.monto;
                 if (typeof jsonContent.destinatario === 'string') extractedDestinatario = jsonContent.destinatario.trim();
-                if (typeof jsonContent.nit === 'string') extractedNit = jsonContent.nit.trim();
+                if (typeof jsonContent.identificador === 'string') extractedInfo = jsonContent.identificador.trim();
               }
             }
           } catch (visionErr) {
@@ -158,17 +158,19 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
         
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const destNorm = normalizeStr(extractedDestinatario);
+        const infoNorm = normalizeStr(extractedInfo);
         
-        // Verificamos que contenga tanto tu nombre como tu apellido, sin importar el orden (ej. "cuellar" y "wilfredo") o que sea Takenos / número de cuenta
         const hasWilfredo = destNorm.includes('wilfredo');
         const hasCuellar = destNorm.includes('cuellar');
         
+        // Validamos por nombre, cuenta, celular (62211864) o CI/NIT (6207125 / 564163021)
         const isDestinatarioValid = (
           (hasWilfredo && hasCuellar) || 
           destNorm.includes('takenos') || 
           destNorm.includes('yolo pago') || 
-          extractedNit.includes('564163021') ||
-          extractedNit.includes('62211864')
+          infoNorm.includes('62211864') ||
+          infoNorm.includes('6207125') ||
+          infoNorm.includes('564163021')
         );
 
         let responseText = '';
@@ -312,7 +314,7 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
       if (data === 'pay_takenos') {
-        const responseText = `*Método seleccionado: QR Takenos / Bs. 67.00*\n\n📋 *Instrucciones:* Realiza la transferencia por el monto exacto de **Bs. 67.00** a nombre de **Wilfredo Cuellar Nohe** (Cel: 62211864) o mediante el QR.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
+        const responseText = `*Método seleccionado: QR Takenos / Bs. 67.00*\n\n📋 *Instrucciones:* Realiza la transferencia por el monto exacto de **Bs. 67.00** a nombre de **Wilfredo Cuellar Nohe** (Cel: 62211864 / NIT: 6207125).\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
 
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
