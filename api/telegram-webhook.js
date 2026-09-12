@@ -299,7 +299,7 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
-      // BOTÓN TAKENOS: ENVÍA LA FOTO DEL QR OFICIAL Y LUEGO LOS DATOS
+      // BOTÓN TAKENOS: ENVÍA LA FOTO DEL QR OFICIAL
       if (data === 'pay_takenos') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -307,11 +307,10 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        // Enlaces directos raw de tus imágenes QR subidas en tu repositorio GitHub
-        const takenosQrUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/Takenos%20ok.jpeg';
+        // Cambia el nombre si prefieres renombrarlo en GitHub como takenos-ok.jpeg
+        const takenosQrUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/takenos-ok.jpeg';
         const captionText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📸 Escanea este QR o transfiere y **envía tu comprobante en foto** por este chat para activar tu suscripción. 🚀`;
 
-        // 1. Enviar la foto del QR
         await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -323,7 +322,7 @@ export default async function handler(req, res) {
           })
         });
       } 
-      // BOTÓN BINANCE: ENVÍA LA FOTO DEL QR DE BINANCE Y EL BOTÓN DE AVISO
+      // BOTÓN BINANCE: ENVÍA LA FOTO DEL QR DE BINANCE
       else if (data === 'pay_binance') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -336,11 +335,10 @@ export default async function handler(req, res) {
 
         const binanceKeyboard = {
           inline_keyboard: [
-            [{ text: `🔔 Ya pagué en Binance (Avisar al Admin)`, callback_data: `notify_binance_${chatId}` }]
+            [{ text: `🔔 Ya pagué en Binance (Avisار al Admin)`, callback_data: `notify_binance_${chatId}` }]
           ]
         };
 
-        // 1. Enviar la foto del QR de Binance con el botón interactivo
         await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
