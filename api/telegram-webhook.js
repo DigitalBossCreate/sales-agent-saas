@@ -68,7 +68,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ESTRICTO Y BLINDADO
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN BLINDADO
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -158,22 +158,18 @@ export default async function handler(req, res) {
                 jsonValid = true;
               }
             }
-          } catch (visionErr) {
-            console.error('Error de visión:', visionErr);
-          }
+          } catch (visionErr) {}
         }
 
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const fullTextNorm = normalizeStr(rawVisionText);
 
-        // VALIDACIONES BLINDADAS
         const hasWilfredo = fullTextNorm.includes('wilfredo');
         const hasCuellar = fullTextNorm.includes('cuellar');
         const isTakenos = fullTextNorm.includes('takenos') || fullTextNorm.includes('564163021');
         const isBank = (hasWilfredo && hasCuellar) || fullTextNorm.includes('62211864') || fullTextNorm.includes('6207125') || fullTextNorm.includes('yolo pago');
 
         const isDestinatarioValid = isTakenos || isBank;
-        // Se blinda: Si la IA no leyó JSON válido o el monto es menor al esperado, NUNCA se aprueba
         const isAmountValid = jsonValid && (extractedAmount >= expectedAmount);
 
         let responseText = '';
@@ -189,7 +185,6 @@ export default async function handler(req, res) {
           }
           responseText = `❌ *Pago Rechazado / Monto Insuficiente*\n\nHemos detectado un monto de *Bs. ${extractedAmount}*, el cual es menor al precio requerido de *Bs. ${expectedAmount.toFixed(2)}*.\n\nPor favor, completa el pago y **vuelve a enviar tu comprobante** correcto. 🔄`;
         } else {
-          // PAGO 100% EXITOSO Y VERIFICADO
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
           }
@@ -304,6 +299,7 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
+      // BOTÓN TAKENOS: ENVÍA IMAGEN QR Y DATOS
       if (data === 'pay_takenos') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -311,10 +307,8 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        // ENVIAR LA IMAGEN REAL DEL QR DE TAKENOS + TEXTO DE INSTRUCCIONES
-        // Puedes cambiar esta URL por el enlace público de tu imagen de QR subida a Supabase Storage o GitHub, o usar un file_id de Telegram.
-        const takenosQrImageUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/takenos.jpeg'; // Ajusta si tu repo tiene otro nombre
-
+        // ⚠️ REEMPLAZA ESTA URL CON EL ENLACE PÚBLICO DE TU IMAGEN QR DE TAKENOS
+        const takenosQrUrl = 'AQUI_URL_QR_TAKENOS'; 
         const captionText = `*Método seleccionado: QR Takenos / Bs. 67.00*\n\n📋 *Instrucciones:* Escanea el código QR o realiza la transferencia por el monto exacto de **Bs. 67.00** a Takenos (NIT: 564163021) o a nombre de **Wilfredo Cuellar Nohe**.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
 
         try {
@@ -323,25 +317,30 @@ export default async function handler(req, res) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId,
-              photo: takenosQrImageUrl,
+              photo: takenosQrUrl,
               caption: captionText,
               parse_mode: 'Markdown'
             })
           });
-        } catch (photoErr) {
-          // Fallback por si la URL falla: envía texto plano
+        } catch (e) {
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text: captionText,
-              parse_mode: 'Markdown'
-            })
+            body: JSON.stringify({ chat_id: chatId, text: captionText, parse_mode: 'Markdown' })
           });
         }
-      } else if (data === 'pay_binance') {
-        const responseText = `*Método seleccionado: USDT Binance (TRC20)*\n\n📋 *Instrucciones:* Realiza el depósito en USDT a la red TRC20:\n\`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\nHaz clic en el botón de abajo una vez realizado tu pago para notificar al administrador. 🚀`;
+      } 
+      // BOTÓN BINANCE: ENVÍA IMAGEN QR / WALLET Y DATOS
+      else if (data === 'pay_binance') {
+        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
+        });
+
+        // ⚠️ REEMPLAZA ESTA URL CON EL ENLACE PÚBLICO DE TU IMAGEN QR DE BINANCE (O BILLETERA)
+        const binanceQrUrl = 'AQUI_URL_QR_BINANCE'; 
+        const captionText = `*Método seleccionado: USDT Binance (TRC20)*\n\n📋 *Instrucciones:* Escanea el QR o deposita en USDT a la red TRC20:\n\`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\nHaz clic en el botón de abajo una vez realizado tu pago para notificar al administrador. 🚀`;
 
         const binanceKeyboard = {
           inline_keyboard: [
@@ -349,22 +348,30 @@ export default async function handler(req, res) {
           ]
         };
 
-        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
-        });
-
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: responseText,
-            parse_mode: 'Markdown',
-            reply_markup: binanceKeyboard
-          })
-        });
+        try {
+          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              photo: binanceQrUrl,
+              caption: captionText,
+              parse_mode: 'Markdown',
+              reply_markup: binanceKeyboard
+            })
+          });
+        } catch (e) {
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: captionText,
+              parse_mode: 'Markdown',
+              reply_markup: binanceKeyboard
+            })
+          });
+        }
       } 
       else if (data.startsWith('notify_binance_')) {
         const targetClientChatId = data.replace('notify_binance_', '');
