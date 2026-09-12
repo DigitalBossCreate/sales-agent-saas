@@ -104,6 +104,18 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
+      // Si el cliente dice que "no quiere", manejamos la objeción amablemente sin mostrar catálogo
+      if (text.startsWith('no ') || text.includes('no quiero') || text.includes('no gracias')) {
+        const msgNo = `Comprendo perfectamente, *${userName}* 👍. Si en algún momento cambias de opinión o necesitas otra herramienta digital, aquí estaré para ayudarte. ¡Que tengas un excelente día! 😊`;
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: msgNo, parse_mode: 'Markdown' })
+        });
+        await guardarMensajeHistorial(userId, 'assistant', msgNo);
+        return res.status(200).json({ success: true });
+      }
+
       // Consultar historial para contexto
       const { data: historialReciente } = await supabase
         .from('historial_chat')
@@ -127,22 +139,20 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Obtener producto principal de la base de datos para usar sus prompts dinámicos
+      // Obtener producto principal de la base de datos con respaldos seguros contra "undefined"
       const productos = await obtenerProductos();
-      const productoPrincipal = productos[0] || { 
-        id: 'default', 
-        nombre: 'Gemini Advanced 18 Meses', 
-        precio: 67, 
-        prompt_ventas: 'Asistente comercial de Digital Boss.',
-        faqs: 'Preguntas frecuentes disponibles pronto.',
-        objeciones_respuestas: 'Soporte y estabilidad garantizada.'
-      };
+      const productoPrincipal = productos[0] || {};
+      const nombreProd = productoPrincipal.nombre || 'Gemini Advanced 18 Meses';
+      const precioProd = productoPrincipal.precio || 67;
+      const promptProd = productoPrincipal.prompt_ventas || 'Acceso completo y premium durante 18 meses con estabilidad garantizada.';
+      const objecionesProd = productoPrincipal.objeciones_respuestas || 'Cuentas con soporte técnico y estabilidad durante todo tu periodo.';
+      const faqsProd = productoPrincipal.faqs || '1️⃣ Entrega inmediata tras verificar tu pago.\n2️⃣ Funciona de manera segura y privada.';
 
       // Envío de video de persuasión dinámico
       if (text.includes('video') || text.includes('demosturacion') || text.includes('muestra') || text.includes('como funciona') || text.includes('ver')) {
         const videoUrl = productoPrincipal.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
 
-        const capVideo = `🎥 *Mira ${productoPrincipal.nombre} en acción.*\n\n💰 Inversión única: *Bs. ${productoPrincipal.precio}*\n\n¿Te gustaría adquirirlo ahora? 👇`;
+        const capVideo = `🎥 *Mira ${nombreProd} en acción.*\n\n💰 Inversión única: *Bs. ${precioProd}*\n\n¿Te gustaría adquirirlo ahora? 👇`;
         await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -165,8 +175,8 @@ export default async function handler(req, res) {
       // Manejo dinámico de objeciones leyendo el campo de Supabase
       if (text.includes('correo') || text.includes('personal') || text.includes('activa') || text.includes('cae') || text.includes('garantia') || text.includes('seguro') || (hablabaDeProducto && (text.includes('si') || text.includes('como') || text.includes('donde')))) {
         const respuestaObjecionDinamica = `¡Exacto, *${userName}*! 🤝\n\n` +
-          `${productoPrincipal.objeciones_respuestas}\n\n` +
-          `💰 Inversión única: **Bs. ${productoPrincipal.precio}**\n\n` +
+          `${objecionesProd}\n\n` +
+          `💰 Inversión única: **Bs. ${precioProd}**\n\n` +
           `¿Deseas que avancemos con tu acceso seguro? 👇`;
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -192,10 +202,10 @@ export default async function handler(req, res) {
       const isProductQuery = text.includes('gemin') || text.includes('gemeni') || text.includes('ia') || text.includes('curso');
 
       if (isInfoQuery || (isProductQuery && !text.includes('comprar'))) {
-        const ventasTexto = `💡 *Información Oficial - ${productoPrincipal.nombre}*\n\n` +
+        const ventasTexto = `💡 *Información Oficial - ${nombreProd}*\n\n` +
           `✨ *Estrategia & Beneficios:*\n` +
-          `${productoPrincipal.prompt_ventas}\n\n` +
-          `💰 *Inversión única:* Bs. ${productoPrincipal.precio}\n\n` +
+          `${promptProd}\n\n` +
+          `💰 *Inversión única:* Bs. ${precioProd}\n\n` +
           `💡 *Tip:* Escribe *"ver video"* si deseas una demostración visual.\n\n` +
           `¿Listo para dar el salto? 👇`;
 
@@ -221,7 +231,7 @@ export default async function handler(req, res) {
 
       // Intención directa de compra
       if (text.includes('comprar') || text.includes('adquirir') || text.includes('pagar')) {
-        const compraMsg = `🎉 *¡Excelente decisión de compra!*\n\n📦 *${productoPrincipal.nombre}*\n💰 *Precio:* Bs. ${productoPrincipal.precio}\n\n👇 Selecciona tu método de pago preferido para emitir el QR:`;
+        const compraMsg = `🎉 *¡Excelente decisión de compra!*\n\n📦 *${nombreProd}*\n💰 *Precio:* Bs. ${precioProd}\n\n👇 Selecciona tu método de pago preferido para emitir el QR:`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -231,7 +241,7 @@ export default async function handler(req, res) {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${productoPrincipal.precio})`, callback_data: `pay_takenos_${productoPrincipal.id}` }],
+                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${precioProd})`, callback_data: `pay_takenos_${productoPrincipal.id}` }],
                 [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${productoPrincipal.id}` }]
               ]
             }
@@ -264,7 +274,7 @@ export default async function handler(req, res) {
       if (data.startsWith('faq_product_')) {
         const prodId = data.replace('faq_product_', '');
         const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const faqsTexto = prodData?.faqs || 'Consulte con el asesor.';
+        const faqsTexto = prodData?.faqs || '1️⃣ Entrega inmediata tras verificar tu pago.\n2️⃣ Soporte y estabilidad asegurada.';
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
