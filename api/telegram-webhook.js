@@ -33,7 +33,7 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\nEstado: Conectado.`,
+            text: `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\``,
             parse_mode: 'Markdown'
           })
         });
@@ -56,14 +56,13 @@ export default async function handler(req, res) {
           } catch (e) {}
         }
 
-        // Intento de envío por foto nativa
         const photoRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
             photo: productoPrincipal.qr_url,
-            caption: `🎉 *¡Excelente elección!*\n\n📦 *${productoPrincipal.nombre}*\n💰 *Precio:* Bs. ${productoPrincipal.precio}\n\n📲 *Escanea el QR para pagar y presiona el botón:*`,
+            caption: `🎉 *¡Excelente elección!*\n\n📦 *${productoPrincipal.nombre}*\n💰 *Precio:* Bs. ${productoPrincipal.precio}\n\n📲 *Escanea el QR y presiona el botón:*`,
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
@@ -73,7 +72,6 @@ export default async function handler(req, res) {
           })
         });
 
-        // Si Telegram rechaza la foto por formato, enviamos respaldo en texto con enlace seguro
         if (!photoRes.ok) {
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
@@ -108,11 +106,12 @@ export default async function handler(req, res) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
       const data = callbackQuery.data;
+      const token = process.env.TELEGRAM_BOT_TOKEN;
 
       await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Procesando solicitud!' })
+        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Procesando!' })
       });
 
       if (data.startsWith('notify_admin_')) {
@@ -125,7 +124,7 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `⏳ *Pago notificado.* El administrador verificará y te enviará tu producto. 🚀`, 
+            text: `⏳ *Pago notificado.* El administrador verificará tu pago. 🚀`, 
             parse_mode: 'Markdown' 
           })
         });
