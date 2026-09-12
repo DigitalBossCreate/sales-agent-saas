@@ -27,7 +27,6 @@ export default async function handler(req, res) {
       const rawText = update.message.text || '';
       const text = rawText.toLowerCase().replace(/["'¿?¡!]/g, '').trim();
 
-      // COMANDO SECRETO PARA EL ADMIN
       if (text === '/admin' || text === 'soy el admin') {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -41,7 +40,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 1. GESTIÓN DE CLIENTE (CRM)
       let clienteId = null;
       try {
         const { data: existingClient } = await supabase
@@ -64,18 +62,9 @@ export default async function handler(req, res) {
             .single();
           if (newClient) clienteId = newClient.id;
         }
-      } catch (clientErr) {
-        console.error('Error CRM:', clientErr);
-      }
+      } catch (clientErr) {}
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN BLINDADO
       if (hasPhoto) {
-        try {
-          await supabase.from('mensajes_bot').insert([
-            { chat_id: chatId, nombre: userName, mensaje: '[FOTO COMPROBANTE]' }
-          ]);
-        } catch (dbError) {}
-
         const photoArray = update.message.photo;
         const bestPhoto = photoArray[photoArray.length - 1];
         const fileId = bestPhoto.file_id;
@@ -108,9 +97,7 @@ export default async function handler(req, res) {
             if (pedidoPendiente) {
               expectedAmount = Number(pedidoPendiente.monto);
               pedidoId = pedidoPendiente.id;
-              if (pedidoPendiente.productos?.nombre) {
-                productName = pedidoPendiente.productos.nombre;
-              }
+              if (pedidoPendiente.productos?.nombre) productName = pedidoPendiente.productos.nombre;
             }
           } catch (pedErr) {}
         }
@@ -133,14 +120,8 @@ export default async function handler(req, res) {
                   {
                     role: 'user',
                     content: [
-                      {
-                        type: 'text',
-                        text: `Analiza detalladamente este comprobante de pago. Extrae todo el texto visible y el monto numérico exacto de la transferencia. Responde estrictamente en formato JSON válido: {"monto": 0.00, "destinatario": "Texto"}`
-                      },
-                      {
-                        type: 'image_url',
-                        image_url: { url: imageUrl }
-                      }
+                      { type: 'text', text: `Analiza este comprobante. Extrae el monto en JSON: {"monto": 0.00, "destinatario": "Texto"}` },
+                      { type: 'image_url', image_url: { url: imageUrl } }
                     ]
                   }
                 ],
@@ -163,7 +144,6 @@ export default async function handler(req, res) {
 
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const fullTextNorm = normalizeStr(rawVisionText);
-
         const hasWilfredo = fullTextNorm.includes('wilfredo');
         const hasCuellar = fullTextNorm.includes('cuellar');
         const isTakenos = fullTextNorm.includes('takenos') || fullTextNorm.includes('564163021');
@@ -173,47 +153,27 @@ export default async function handler(req, res) {
         const isAmountValid = jsonValid && (extractedAmount >= expectedAmount);
 
         let responseText = '';
-
         if (!jsonValid || !isDestinatarioValid) {
-          if (pedidoId) {
-            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_DESTINATARIO' }).eq('id', pedidoId);
-          }
-          responseText = `❌ *Comprobante No Válido o No Legible*\n\nNo pudimos verificar las cuentas oficiales (Takenos / Wilfredo Cuellar) o la imagen no es clara.\n\nPor favor, **vuelve a enviar tu comprobante** correcto y nítido. 🔄📸`;
+          if (pedidoId) await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_DESTINATARIO' }).eq('id', pedidoId);
+          responseText = `❌ *Comprobante No Válido o No Legible*\n\nPor favor, **vuelve a enviar tu comprobante** nítido. 🔄`;
         } else if (!isAmountValid) {
-          if (pedidoId) {
-            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
-          }
-          responseText = `❌ *Pago Rechazado / Monto Insuficiente*\n\nHemos detectado un monto de *Bs. ${extractedAmount}*, el cual es menor al precio requerido de *Bs. ${expectedAmount.toFixed(2)}*.\n\nPor favor, completa el pago y **vuelve a enviar tu comprobante** correcto. 🔄`;
+          if (pedidoId) await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
+          responseText = `❌ *Monto Insuficiente*\n\nDetectamos Bs. ${extractedAmount}, el precio requerido es Bs. ${expectedAmount.toFixed(2)}. 🔄`;
         } else {
-          if (pedidoId) {
-            await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
-          }
-          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio Pagado: Bs. ${extractedAmount.toFixed(2)}\nDestinatario: Verificado Oficial\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: Takenos / QR / Transferencia\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
+          if (pedidoId) await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
+          responseText = `¡Factura Digital - Pagado y Verificado! 🚀\nProducto: ${productName}\nMonto: Bs. ${extractedAmount.toFixed(2)}`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: responseText,
-            parse_mode: 'Markdown'
-          })
+          body: JSON.stringify({ chat_id: chatId, text: responseText, parse_mode: 'Markdown' })
         });
 
         return res.status(200).json({ success: true });
       }
 
-      // 3. GUARDAR MENSAJE DE TEXTO
-      try {
-        await supabase.from('mensajes_bot').insert([
-          { chat_id: chatId, nombre: userName, mensaje: rawText }
-        ]);
-      } catch (dbError) {}
-
-      // 4. DETECCIÓN DE INTENCIÓN DE COMPRA
       const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
-
       if (isBuying) {
         let matchedProduct = { id: null, nombre: 'Gemini Advanced 18 Meses', precio: 67.00 };
         try {
@@ -232,8 +192,7 @@ export default async function handler(req, res) {
           } catch (orderErr) {}
         }
 
-        const aiResponse = `🎉 *¡Excelente elección!* \n\nHas seleccionado:\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* Bs. ${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago principal:*`;
-
+        const aiResponse = `🎉 *¡Excelente elección!* \n\n📦 *${matchedProduct.nombre}*\n💰 *Precio:* Bs. ${matchedProduct.precio}\n\n👇 *Selecciona tu método de pago principal:*`;
         let inlineKeyboard = {
           inline_keyboard: [
             [{ text: `🇧🇴 Pagar con QR Takenos (Bs. 67)`, callback_data: `pay_takenos` }],
@@ -244,62 +203,24 @@ export default async function handler(req, res) {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: aiResponse,
-            parse_mode: 'Markdown',
-            reply_markup: inlineKeyboard
-          })
+          body: JSON.stringify({ chat_id: chatId, text: aiResponse, parse_mode: 'Markdown', reply_markup: inlineKeyboard })
         });
-
         return res.status(200).json({ success: true });
       }
 
-      // 5. RESPUESTA DE IA (GROQ)
-      let catalogContext = 'Gemini Advanced 18 Meses - Bs 67';
-      const systemPrompt = `Eres el agente de ventas de "Digital Boss". Catálogo:\n${catalogContext}\nResponde de forma comercial y breve.`;
-
       let aiResponse = '¡Hola! Bienvenido al sistema. ¿En qué puedo ayudarte?';
-      try {
-        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'openai/gpt-oss-20b',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: rawText }
-            ],
-            temperature: 0.7
-          })
-        });
-        const groqData = await groqRes.json();
-        if (groqData.choices && groqData.choices.length > 0) {
-          aiResponse = groqData.choices[0].message.content;
-        }
-      } catch (aiError) {}
-
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: aiResponse,
-          parse_mode: 'Markdown'
-        })
+        body: JSON.stringify({ chat_id: chatId, text: aiResponse, parse_mode: 'Markdown' })
       });
     } 
-    // 6. MANEJO DE CLICS Y BOTONES DE ADMIN
     else if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
-      // BOTÓN TAKENOS: ENVÍA TEXTO INFORMATIVO CON ACCESO DIRECTO AL QR Y DATOS
       if (data === 'pay_takenos') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -307,21 +228,16 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        const qrImageUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/takenos-ok.jpeg';
-        const takenosText = `🇧🇴 *Método seleccionado: QR Takenos* \n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto exacto:* **Bs. 67.00**\n\n📋 *Datos para la transferencia:* \n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n🔗 [👉 CLIC AQUÍ PARA VER Y ESCANEAR EL QR](${qrImageUrl})\n\n📸 *Instrucción:* Realiza tu pago y **envía la captura del comprobante** por este chat para validarlo automáticamente. 🚀`;
+        // URL corregida y limpia apuntando a Supabase Storage
+        const takenosQrUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/takenos-ok.jpeg';
+        const captionText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📸 Escanea este QR o transfiere y **envía tu comprobante en foto** por este chat. 🚀`;
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: takenosText,
-            parse_mode: 'Markdown',
-            disable_web_page_preview: false
-          })
+          body: JSON.stringify({ chat_id: chatId, photo: takenosQrUrl, caption: captionText, parse_mode: 'Markdown' })
         });
       } 
-      // BOTÓN BINANCE: ENVÍA TEXTO INFORMATIVO CON ACCESO DIRECTO AL QR DE BINANCE
       else if (data === 'pay_binance') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -329,8 +245,9 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
-        const qrImageUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/QR%20Binance.jpeg';
-        const binanceText = `💵 *Método seleccionado: USDT Binance* \n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto:* $10 USDT\n\n📋 *Instrucciones:* \n• **Red:** Tron (TRC20)\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\n🔗 [👉 CLIC AQUÍ PARA VER EL QR DE BINANCE](${qrImageUrl})\n\n👇 Una vez realizado tu pago, haz clic en el botón de abajo para notificar al administrador:`;
+        // URL corregida y limpia apuntando a Supabase Storage
+        const binanceQrUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/QR%20Binance.jpeg';
+        const captionText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n👇 Escanea el QR y haz clic en el botón de abajo una vez realizado tu pago:`;
 
         const binanceKeyboard = {
           inline_keyboard: [
@@ -338,16 +255,10 @@ export default async function handler(req, res) {
           ]
         };
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: binanceText,
-            parse_mode: 'Markdown',
-            reply_markup: binanceKeyboard,
-            disable_web_page_preview: false
-          })
+          body: JSON.stringify({ chat_id: chatId, photo: binanceQrUrl, caption: captionText, parse_mode: 'Markdown', reply_markup: binanceKeyboard })
         });
       } 
       else if (data.startsWith('notify_binance_')) {
@@ -356,21 +267,17 @@ export default async function handler(req, res) {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Aviso enviado al administrador con éxito!' })
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Aviso enviado al administrador!' })
         });
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `⏳ *Pago notificado*\nHemos enviado tu aviso de pago al equipo administrativo de Digital Boss. En breve verificaremos la llegada de los fondos y te liberaremos el producto. 🚀`,
-            parse_mode: 'Markdown'
-          })
+          body: JSON.stringify({ chat_id: chatId, text: `⏳ *Pago notificado al administrador.* En breve te liberaremos el producto. 🚀`, parse_mode: 'Markdown' })
         });
 
         const adminDest = ADMIN_CHAT_ID || chatId; 
-        const adminAlertText = `🔔 *NUEVO PAGO DE BINANCE PENDIENTE*\n\n👤 *Cliente Chat ID:* \`${targetClientChatId}\`\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto:* $10 USDT / Bs. 67\n\n¿Deseas aprobar este pago y entregar el producto?`;
+        const adminAlertText = `🔔 *NUEVO PAGO DE BINANCE PENDIENTE*\n\n👤 *Cliente ID:* \`${targetClientChatId}\`\n💰 *Monto:* $10 USDT / Bs. 67`;
 
         const adminKeyboard = {
           inline_keyboard: [
@@ -384,12 +291,7 @@ export default async function handler(req, res) {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: adminDest,
-            text: adminAlertText,
-            parse_mode: 'Markdown',
-            reply_markup: adminKeyboard
-          })
+          body: JSON.stringify({ chat_id: adminDest, text: adminAlertText, parse_mode: 'Markdown', reply_markup: adminKeyboard })
         });
       }
       else if (data.startsWith('admin_approve_')) {
@@ -398,33 +300,23 @@ export default async function handler(req, res) {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Pago aprobado con éxito!' })
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Aprobado!' })
         });
 
         try {
           await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('estado', 'ESPERANDO_PAGO');
         } catch (e) {}
 
-        const successText = `¡Hola!\nAquí tienes el comprobante de compra de tu *Gemini Advanced 18 Meses*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: Gemini Advanced 18 Meses\nPrecio Pagado: USDT / Binance\nEstado: Pagado y Verificado\n\nGracias por tu compra. ¡Disfruta de tu suscripción! 🚀\n\`\`\``;
-
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: targetClientChatId,
-            text: successText,
-            parse_mode: 'Markdown'
-          })
+          body: JSON.stringify({ chat_id: targetClientChatId, text: `¡Pago verificado y aprobado! Disfruta de tu Gemini Advanced 18 Meses 🚀`, parse_mode: 'Markdown' })
         });
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `✅ *Pago Aprobado con Éxito*\nSe le entregó el producto al cliente (\`${targetClientChatId}\`).`,
-            parse_mode: 'Markdown'
-          })
+          body: JSON.stringify({ chat_id: chatId, text: `✅ Producto entregado con éxito al cliente.`, parse_mode: 'Markdown' })
         });
       }
       else if (data.startsWith('admin_reject_')) {
@@ -433,17 +325,13 @@ export default async function handler(req, res) {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Pago rechazado.' })
+          body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Rechazado.' })
         });
 
-        await fetch(`https://api.telegram.org/bot${token}(\`telegram_bot_token\`)/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: targetClientChatId,
-            text: `❌ *Pago No Verificado*\n\nNo pudimos confirmar tu depósito en Binance. Si realizaste el pago, por favor contacta al soporte. ⚠️`,
-            parse_mode: 'Markdown'
-          })
+          body: JSON.stringify({ chat_id: targetClientChatId, text: `❌ No pudimos verificar tu pago de Binance. Contacta a soporte.`, parse_mode: 'Markdown' })
         });
       }
     }
