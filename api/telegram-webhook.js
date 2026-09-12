@@ -2,7 +2,7 @@ import { obtenerProductos, gestionarCliente } from '../lib/bot-core.js';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://nvzovzegagabdhdzqpgq.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_ANON_KEY = TOKEN_FORZADO || '';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
