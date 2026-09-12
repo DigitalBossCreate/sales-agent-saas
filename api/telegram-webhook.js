@@ -7,7 +7,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || ''; 
-const VERCEL_URL = 'https://sales-agent-saas-drab.vercel.app'; // Tu dominio de Vercel
+const VERCEL_URL = 'https://sales-agent-saas-drab.vercel.app';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -229,7 +229,6 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        // URL servida estáticamente desde tu propio Vercel
         const qrTakenosUrl = `${VERCEL_URL}/takenos.jpeg`;
         const captionText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📸 Escanea este QR o transfiere y **envía tu comprobante en foto** por este chat. 🚀`;
 
@@ -251,7 +250,6 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
-        // URL servida estáticamente desde tu propio Vercel
         const qrBinanceUrl = `${VERCEL_URL}/binance.jpeg`;
         const captionText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n👇 Escanea el QR y haz clic en el botón de abajo una vez realizado tu pago:`;
 
