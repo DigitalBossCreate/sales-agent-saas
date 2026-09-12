@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ESTRICTO (MONTO + DESTINATARIO FLEXIBLE)
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ESTRICTO (MONTO + DESTINATARIO)
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -123,8 +123,8 @@ export default async function handler(req, res) {
                         type: 'text',
                         text: `Analiza este comprobante de pago con absoluta precisión. Extrae tres datos clave:
 1. El monto numérico exacto de la transferencia (ej. 67.00).
-2. El nombre o entidad que aparece en el campo "Enviado a" o destinatario (ej. Takenos, Wilfredo Cuellar Nohe, Yolo Pago, etc.).
-3. El número de NIT, CI o celular de destino si aparece visible.
+2. El nombre que aparece en la sección "Para" o "Enviado a" (ej. CUELLAR NOHE WILFREDO, Takenos, etc.).
+3. El número de cuenta o NIT/CI si aparece visible (ej. 62211864).
 Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "nit": "Texto"}`
                       },
                       {
@@ -153,16 +153,19 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           }
         }
 
-        // VALIDACIÓN MATEMÁTICA Y DE DESTINATARIO
+        // VALIDACIÓN MATEMÁTICA Y DE DESTINATARIO FLEXIBLE
         const isAmountValid = (extractedAmount === expectedAmount);
         
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const destNorm = normalizeStr(extractedDestinatario);
         
-        // Acepta Takenos, Wilfredo Cuellar, Yolo Pago o el NIT oficial (564163021)
+        // Verificamos que contenga tanto tu nombre como tu apellido, sin importar el orden (ej. "cuellar" y "wilfredo") o que sea Takenos / número de cuenta
+        const hasWilfredo = destNorm.includes('wilfredo');
+        const hasCuellar = destNorm.includes('cuellar');
+        
         const isDestinatarioValid = (
+          (hasWilfredo && hasCuellar) || 
           destNorm.includes('takenos') || 
-          destNorm.includes('wilfredo cuellar') || 
           destNorm.includes('yolo pago') || 
           extractedNit.includes('564163021') ||
           extractedNit.includes('62211864')
@@ -309,7 +312,7 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
       if (data === 'pay_takenos') {
-        const responseText = `*Método seleccionado: QR Takenos / Bs. 67.00*\n\n📋 *Instrucciones:* Realiza la transferencia por el monto exacto de **Bs. 67.00** a nombre de **Wilfredo Cuellar Nohe** (Cel: 62211864) o mediante el QR de Takenos.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
+        const responseText = `*Método seleccionado: QR Takenos / Bs. 67.00*\n\n📋 *Instrucciones:* Realiza la transferencia por el monto exacto de **Bs. 67.00** a nombre de **Wilfredo Cuellar Nohe** (Cel: 62211864) o mediante el QR.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
 
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
