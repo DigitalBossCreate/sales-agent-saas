@@ -7,7 +7,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || ''; 
-const VERCEL_URL = 'https://sales-agent-saas-drab.vercel.app';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -222,7 +221,6 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
-      // Responder de inmediato al callback para quitar el estado de carga del botón
       await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -230,7 +228,8 @@ export default async function handler(req, res) {
       });
 
       if (data === 'pay_takenos') {
-        const qrTakenosUrl = `${VERCEL_URL}/takenos.jpeg`;
+        // Enlace universal alojado de forma segura en Supabase Storage
+        const qrTakenosUrl = `https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/takenos.jpeg`;
         const takenosText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📲 *Haz clic en el botón de abajo para ver y escanear el QR:*`;
 
         const takenosKeyboard = {
@@ -251,7 +250,8 @@ export default async function handler(req, res) {
         });
       } 
       else if (data === 'pay_binance') {
-        const qrBinanceUrl = `${VERCEL_URL}/binance.jpeg`;
+        // Enlace universal alojado de forma segura en Supabase Storage
+        const qrBinanceUrl = `https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/binance.jpeg`;
         const binanceText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n📲 *Haz clic en el botón de abajo para ver el QR de Binance:*`;
 
         const binanceKeyboard = {
