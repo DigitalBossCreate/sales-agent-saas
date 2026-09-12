@@ -299,7 +299,7 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
-      // BOTÓN TAKENOS: ENVÍA IMAGEN QR Y DATOS
+      // BOTÓN TAKENOS: ENVÍA LA IMAGEN QR DE TAKENOS
       if (data === 'pay_takenos') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -307,8 +307,8 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        // ⚠️ REEMPLAZA ESTA URL CON EL ENLACE PÚBLICO DE TU IMAGEN QR DE TAKENOS
-        const takenosQrUrl = 'AQUI_URL_QR_TAKENOS'; 
+        // URL pública de tu QR Takenos subido a GitHub (ej: https://raw.githubusercontent.com/tu-usuario/tu-repo/main/Takenos%20ok_2.jpeg)
+        const takenosQrUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/Takenos%20ok_2.jpeg'; 
         const captionText = `*Método seleccionado: QR Takenos / Bs. 67.00*\n\n📋 *Instrucciones:* Escanea el código QR o realiza la transferencia por el monto exacto de **Bs. 67.00** a Takenos (NIT: 564163021) o a nombre de **Wilfredo Cuellar Nohe**.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
 
         try {
@@ -330,7 +330,7 @@ export default async function handler(req, res) {
           });
         }
       } 
-      // BOTÓN BINANCE: ENVÍA IMAGEN QR / WALLET Y DATOS
+      // BOTÓN BINANCE: ENVÍA LA IMAGEN QR DE BINANCE
       else if (data === 'pay_binance') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -338,8 +338,8 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
-        // ⚠️ REEMPLAZA ESTA URL CON EL ENLACE PÚBLICO DE TU IMAGEN QR DE BINANCE (O BILLETERA)
-        const binanceQrUrl = 'AQUI_URL_QR_BINANCE'; 
+        // URL pública de tu QR Binance subido a GitHub (ej: https://raw.githubusercontent.com/willycuellar/telegram-bot/main/QR%20Binance.jpeg)
+        const binanceQrUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/QR%20Binance.jpeg'; 
         const captionText = `*Método seleccionado: USDT Binance (TRC20)*\n\n📋 *Instrucciones:* Escanea el QR o deposita en USDT a la red TRC20:\n\`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\nHaz clic en el botón de abajo una vez realizado tu pago para notificar al administrador. 🚀`;
 
         const binanceKeyboard = {
