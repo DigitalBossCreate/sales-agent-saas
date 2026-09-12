@@ -37,16 +37,20 @@ export default async function handler(req, res) {
       const textLower = text.toLowerCase();
 
       // =========================================================================
-      // REGLA DE ORO / BLOQUE DE ADMIN Y ASISTENTE GUIADO (Sin tocar lo demás)
+      // REGLA DE ORO / BLOQUE DE ADMIN Y ASISTENTE GUIADO (Blindado)
       // =========================================================================
       if (textLower === '/admin' || textLower === 'soy el admin' || textLower.startsWith('/nuevo') || textLower === '/catalogo_admin' || textLower.startsWith('/eliminar ')) {
         await gestionarCliente(userId, userName, userUsername);
         
-        const { data: adminInfo } = await supabase
-          .from('clientes')
-          .select('estado_admin, temp_prod_data')
-          .eq('telegram_id', userId)
-          .single();
+        let adminInfo = null;
+        try {
+          const resAdmin = await supabase
+            .from('clientes')
+            .select('estado_admin, temp_prod_data')
+            .eq('telegram_id', userId)
+            .maybeSingle();
+          adminInfo = resAdmin.data;
+        } catch (e) {}
 
         const estadoAdmin = adminInfo?.estado_admin || 'IDLE';
         let prodData = adminInfo?.temp_prod_data || {};
@@ -381,7 +385,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      const defaultMsg = 'Estoy aquí para ayudarte a elegir la mejor herramienta o curso digital. Cuéntame, چه deseas consultar? 😊';
+      const defaultMsg = 'Estoy aquí para ayudarte a elegir la mejor herramienta o curso digital. Cuéntame, ¿qué deseas consultar? 😊';
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
