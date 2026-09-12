@@ -9,6 +9,19 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '';
 
+// Función auxiliar para registrar mensajes en la memoria de chat
+async function guardarMensajeHistorial(telegramId, rol, mensaje) {
+  try {
+    await supabase.from('historial_chat').insert([{
+      telegram_id: telegramId,
+      rol: rol,
+      mensaje: mensaje
+    }]);
+  } catch (e) {
+    console.error('Error guardando historial:', e.message);
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(200).json({ status: 'Digital Boss Bot Core is running' });
@@ -27,16 +40,17 @@ export default async function handler(req, res) {
 
       const clienteId = await gestionarCliente(userId, userName, userUsername);
 
+      // Guardar mensaje entrante del usuario en el historial
+      await guardarMensajeHistorial(userId, 'user', text);
+
       // --- FILTRO INTELIGENTE DE PAUSA (Si el bot está esperando el correo para activación manual) ---
       const { data: clienteInfo } = await supabase
         .from('clientes')
         .select('estado_chat')
-        .telegram_id === userId // o eq('telegram_id', userId)
         .eq('telegram_id', userId)
         .single();
 
       if (clienteInfo && clienteInfo.estado_chat === 'ESPERANDO_CORREO') {
-        // El bot se calla para no interferir, y opcionalmente avisamos al admin o registramos el correo
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -47,35 +61,30 @@ export default async function handler(req, res) {
           })
         });
 
+        const respuestaCorreo = `¡Perfecto! Hemos registrado tu correo. En unos minutos te enviaremos tus datos de acceso listos. 🚀`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `¡Perfecto! Hemos registrado tu correo. En unos minutos te enviaremos tus datos de acceso listos. 🚀`
-          })
+          body: JSON.stringify({ chat_id: chatId, text: respuestaCorreo })
         });
-
-        // Opcional: Volver a activar el chat del cliente o dejarlo pausado hasta que el admin lo libere
+        await guardarMensajeHistorial(userId, 'assistant', respuestaCorreo);
         return res.status(200).json({ success: true });
       }
       // --------------------------------------------------------------------------------------------
 
       if (text === '/admin' || text === 'soy el admin') {
+        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\``;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\``,
-            parse_mode: 'Markdown'
-          })
+          body: JSON.stringify({ chat_id: chatId, text: adminMsg, parse_mode: 'Markdown' })
         });
+        await guardarMensajeHistorial(userId, 'assistant', adminMsg);
         return res.status(200).json({ success: true });
       }
 
       // Comando de admin para liberar al cliente si se quedó en pausa
-      if (text.startsWith('/liberar ') && (chatId.toString() === ADMIN_CHAT_ID.toString() || true)) {
+      if (text.startsWith('/liberar ')) {
         const targetId = text.replace('/liberar ', '').trim();
         await supabase.from('clientes').update({ estado_chat: 'ACTIVO' }).eq('telegram_id', targetId);
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -86,17 +95,26 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Saludo amigable general
-      if (text === 'hola' || text === 'buenas' || text === 'buenas tardes' || text === 'buenas noches' || text === 'start' || text === '/start') {
+      // Consultar últimas interacciones del usuario para evaluar contexto
+      const { data: historialReciente } = await supabase
+        .from('historial_chat')
+        .select('mensaje, rol')
+        .eq('telegram_id', userId)
+        .order('creado_at', { ascending: false })
+        .limit(4);
+
+      const contextoPrevio = historialReciente ? historialReciente.map(h => h.mensaje).join(' ') : '';
+      const hablabaDeProducto = contextoPrevio.includes('gemin') || contextoPrevio.includes('ia') || contextoPrevio.includes('curso');
+
+      // Saludo amigable general (Solo si no hay contexto previo de producto)
+      if ((text === 'hola' || text === 'buenas' || text === 'buenas tardes' || text === 'buenas noches' || text === 'start' || text === '/start') && !hablabaDeProducto) {
+        const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. ¿Qué herramienta o curso te gustaría consultar hoy? (Ej: *Gemini*) 🚀`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            chat_id: chatId, 
-            text: `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. ¿Qué herramienta o curso te gustaría consultar hoy? (Ej: *Gemini*) 🚀`, 
-            parse_mode: 'Markdown' 
-          })
+          body: JSON.stringify({ chat_id: chatId, text: saludoMsg, parse_mode: 'Markdown' })
         });
+        await guardarMensajeHistorial(userId, 'assistant', saludoMsg);
         return res.status(200).json({ success: true });
       }
 
@@ -106,13 +124,14 @@ export default async function handler(req, res) {
         const productoPrincipal = productos[0];
         const videoUrl = productoPrincipal.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
 
+        const capVideo = `🎥 *Mira ${productoPrincipal.nombre} en acción.*\n\n💰 Inversión única: *Bs. ${productoPrincipal.precio}*\n\n¿Te gustaría adquirirlo ahora? 👇`;
         await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
             video: videoUrl,
-            caption: `🎥 *Mira ${productoPrincipal.nombre} en acción.*\n\n💰 Inversión única: *Bs. ${productoPrincipal.precio}*\n\n¿Te gustaría adquirirlo ahora? 👇`,
+            caption: capVideo,
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
@@ -121,25 +140,25 @@ export default async function handler(req, res) {
             }
           })
         });
+        await guardarMensajeHistorial(userId, 'assistant', '[Envío de Video Demo]');
         return res.status(200).json({ success: true });
       }
 
-      // Manejo de objeciones sobre seguridad
-      if (text.includes('cae') || text.includes('garantia') || text.includes('seguro') || text.includes('estafa') || text.includes('perder')) {
+      // Manejo de preguntas sobre correo personal, activación o garantías (Contexto persistente)
+      if (text.includes('correo') || text.includes('personal') || text.includes('activa') || text.includes('cae') || text.includes('garantia') || text.includes('seguro') || (hablabaDeProducto && (text.includes('si') || text.includes('como') || text.includes('donde')))) {
         const productos = await obtenerProductos();
         const productoPrincipal = productos[0];
 
-        const objecionRespuesta = `Comprendo perfectamente tu preocupación por la estabilidad, *${userName}* 🤝.\n\n` +
-          `Te cuento que con nuestro acceso cuentas con estabilidad garantizada y soporte técnico durante todo tu periodo. No trabajamos con métodos frágiles.\n\n` +
+        const respuestaContexto = `¡Exacto, *${userName}*! 🤝 Se configura de manera segura y privada para que disfrutes de todo su potencial sin interrupciones y con soporte garantizado durante tus 18 meses.\n\n` +
           `💰 Inversión única: **Bs. ${productoPrincipal.precio}**\n\n` +
-          `¿Te gustaría que avancemos con tu acceso seguro? 👇`;
+          `¿Deseas que avancemos con tu acceso seguro? 👇`;
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: objecionRespuesta, 
+            text: respuestaContexto, 
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
@@ -148,6 +167,7 @@ export default async function handler(req, res) {
             }
           })
         });
+        await guardarMensajeHistorial(userId, 'assistant', respuestaContexto);
         return res.status(200).json({ success: true });
       }
 
@@ -162,7 +182,7 @@ export default async function handler(req, res) {
         const ventasTexto = `💡 *Información Oficial - ${productoPrincipal.nombre}*\n\n` +
           `✨ *¿Por qué elegirnos?*\n` +
           `• Acceso garantizado y soporte técnico continuo.\n` +
-          `• Entrega rápida y segura.\n\n` +
+          `• Entrega rápida y segura a tu correo.\n\n` +
           `💰 *Inversión única:* Bs. ${productoPrincipal.precio}\n\n` +
           `💡 *Tip:* Escribe *"ver video"* si deseas una demostración visual.\n\n` +
           `¿Listo para dar el salto? 👇`;
@@ -182,6 +202,7 @@ export default async function handler(req, res) {
             }
           })
         });
+        await guardarMensajeHistorial(userId, 'assistant', ventasTexto);
         return res.status(200).json({ success: true });
       }
 
@@ -190,12 +211,13 @@ export default async function handler(req, res) {
         const productos = await obtenerProductos();
         const productoPrincipal = productos[0];
 
+        const compraMsg = `🎉 *¡Excelente decisión de compra!*\n\n📦 *${productoPrincipal.nombre}*\n💰 *Precio:* Bs. ${productoPrincipal.precio}\n\n👇 Selecciona tu método de pago preferido para emitir el QR:`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `🎉 *¡Excelente decisión de compra!*\n\n📦 *${productoPrincipal.nombre}*\n💰 *Precio:* Bs. ${productoPrincipal.precio}\n\n👇 Selecciona tu método de pago preferido para emitir el QR:`, 
+            text: compraMsg, 
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
@@ -205,18 +227,17 @@ export default async function handler(req, res) {
             }
           })
         });
+        await guardarMensajeHistorial(userId, 'assistant', compraMsg);
         return res.status(200).json({ success: true });
       }
 
+      const defaultMsg = 'Estoy aquí para ayudarte a elegir la mejor herramienta o curso digital. Cuéntame, ¿qué deseas consultar? 😊';
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          chat_id: chatId, 
-          text: 'Estoy aquí para ayudarte a elegir la mejor herramienta o curso digital. Cuéntame, ¿qué deseas consultar? 😊', 
-          parse_mode: 'Markdown' 
-        })
+        body: JSON.stringify({ chat_id: chatId, text: defaultMsg })
       });
+      await guardarMensajeHistorial(userId, 'assistant', defaultMsg);
     } 
     else if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
@@ -358,9 +379,7 @@ export default async function handler(req, res) {
           await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('estado', 'ESPERANDO_PAGO');
         } catch (e) {}
 
-        // DISTINCIÓN INTELIGENTE: AUTOMÁTICO (Cursos) vs MANUAL (Cuentas/IA)
         if (tipoEntrega === 'automatico') {
-          // Si es curso: Entrega directa automática sin pausar
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -371,7 +390,6 @@ export default async function handler(req, res) {
             })
           });
         } else {
-          // Si es cuenta o IA (manual): Pausamos al bot y le pedimos su correo al cliente
           await supabase.from('clientes').update({ estado_chat: 'ESPERANDO_CORREO' }).eq('telegram_id', targetChatId);
 
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
