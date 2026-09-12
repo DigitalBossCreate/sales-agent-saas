@@ -1,7 +1,7 @@
 import { obtenerProductos, gestionarCliente } from '../lib/bot-core.js';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://nvzovzegagabhdzqpgq.supabase.co';
+const SUPABASE_URL = 'https://nvzovzegagabdhdzqpgq.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
@@ -40,64 +40,51 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
-      if (isBuying) {
-        const productos = await obtenerProductos();
-        const productoPrincipal = productos[0];
-
-        if (clienteId) {
-          try {
-            await supabase.from('pedidos').insert([{
-              cliente_id: clienteId,
-              producto_id: productoPrincipal.id,
-              monto: productoPrincipal.precio,
-              estado: 'ESPERANDO_PAGO'
-            }]);
-          } catch (e) {}
-        }
-
-        const photoRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      // Paso 1: Saludo amigable general
+      if (text === 'hola' || text === 'buenas' || text === 'start' || text === '/start') {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            photo: productoPrincipal.qr_url,
-            caption: `🎉 *¡Excelente elección!*\n\n📦 *${productoPrincipal.nombre}*\n💰 *Precio:* Bs. ${productoPrincipal.precio}\n\n📲 *Escanea el QR y presiona el botón:*`,
+            text: `¡Hola, *${userName}*! 👋 Bienvenido a nuestro asistente de ventas digital. ¿En qué producto estás interesado hoy? (Escribe por ejemplo: *Gemini*) 🚀`, 
+            parse_mode: 'Markdown' 
+          })
+        });
+        return res.status(200).json({ success: true });
+      }
+
+      // Paso 2: Interés por el producto -> Muestra info y opciones de pago
+      const isProductQuery = text.includes('gemini') || text.includes('comprar') || text.includes('producto');
+      if (isProductQuery) {
+        const productos = await obtenerProductos();
+        const productoPrincipal = productos[0];
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: `🎉 *¡Excelente elección!*\n\n📦 *${productoPrincipal.nombre}*\n💰 *Precio:* Bs. ${productoPrincipal.precio}\n\n👇 Selecciona tu método de pago preferido:`, 
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${productoPrincipal.id}` }]
+                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${productoPrincipal.precio})`, callback_data: `pay_takenos_${productoPrincipal.id}` }],
+                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${productoPrincipal.id}` }]
               ]
             }
           })
         });
-
-        if (!photoRes.ok) {
-          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              chat_id: chatId, 
-              text: `🎉 *¡Excelente elección!*\n\n📦 *${productoPrincipal.nombre}*\n💰 *Precio:* Bs. ${productoPrincipal.precio}\n\n🔗 [Ver y Descargar QR de Pago](${productoPrincipal.qr_url})`, 
-              parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${productoPrincipal.id}` }]
-                ]
-              }
-            })
-          });
-        }
-
         return res.status(200).json({ success: true });
       }
 
+      // Respuesta por defecto si escribe otra cosa
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           chat_id: chatId, 
-          text: '¡Hola! Escribe "Quiero comprar Gemini" para iniciar tu compra. 🚀', 
+          text: 'Cuéntame, ¿qué producto te gustaría consultar u adquirir hoy? 😊', 
           parse_mode: 'Markdown' 
         })
       });
@@ -111,10 +98,47 @@ export default async function handler(req, res) {
       await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Procesando!' })
+        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Cargando método de pago...' })
       });
 
-      if (data.startsWith('notify_admin_')) {
+      // Paso 3: El cliente seleccionó el método de pago -> Enviar el QR correspondiente
+      if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
+        const parts = data.split('_');
+        const method = parts[1]; // takenos o binance
+        const prodId = parts[2];
+
+        const productos = await obtenerProductos();
+        const productoPrincipal = productos.find(p => p.id === prodId) || productos[0];
+
+        // Guardar pedido preliminar
+        try {
+          await supabase.from('pedidos').insert([{
+            producto_id: productoPrincipal.id,
+            monto: productoPrincipal.precio,
+            estado: 'ESPERANDO_PAGO'
+          }]);
+        } catch (e) {}
+
+        // QR según selección (puedes ajustar URLs específicas en BD o usar la imagen_url)
+        const qrUrl = productoPrincipal.imagen_url;
+
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            photo: qrUrl,
+            caption: `📲 *Escanea el QR de ${method.toUpperCase()} para realizar tu pago.*\n\nUna vez realizado, haz clic en el botón de abajo para notificar al administrador:`,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${productoPrincipal.id}` }]
+              ]
+            }
+          })
+        });
+      }
+      else if (data.startsWith('notify_admin_')) {
         const parts = data.split('_');
         const targetChatId = parts[2];
         const prodId = parts[3];
@@ -124,7 +148,7 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `⏳ *Pago notificado.* El administrador verificará tu pago. 🚀`, 
+            text: `⏳ *Pago notificado.* El administrador verificará tu comprobante. 🚀`, 
             parse_mode: 'Markdown' 
           })
         });
@@ -151,14 +175,15 @@ export default async function handler(req, res) {
         const targetChatId = parts[2];
         const prodId = parts[3];
 
-        let entregableUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/acceso.txt';
+        let entregableUrl = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/acceso.txt';
         let nombreProd = 'Producto Digital';
 
         try {
           const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
           if (prodData) {
             nombreProd = prodData.nombre;
-            if (prodData.entregable_url) entregableUrl = prodData.entregable_url;
+            if (prodData.pdf_url) entregableUrl = prodData.pdf_url;
+            else if (prodData.video_url) entregableUrl = prodData.video_url;
           }
           await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('estado', 'ESPERANDO_PAGO');
         } catch (e) {}
