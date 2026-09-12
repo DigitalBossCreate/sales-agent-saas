@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ROBUSTO
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN FLEXIBLE
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -122,9 +122,9 @@ export default async function handler(req, res) {
                       {
                         type: 'text',
                         text: `Analiza este comprobante de transferencia o pago. Extrae con máxima atención:
-1. El monto exacto de dinero (busca etiquetas como "Monto", "Bs", valores numéricos grandes de pago. Si dice "Bs 60.00", extrae 60.00).
-2. El nombre del destinatario, cuenta o datos a quien se envía (ej. Wilfredo Cuellar, Takenos, Cuellar Nohe, etc.).
-3. Cualquier número de cuenta, celular, CI o NIT visible en el comprobante (ej. 62211864 o 6207125).
+1. El monto exacto de dinero (busca etiquetas como "Monto", "Bs", valores numéricos de pago. Si dice "Bs 67.00", extrae 67.00).
+2. El nombre del destinatario o cuenta a quien se envía (ej. Wilfredo Cuellar, Takenos, Cuellar Nohe, etc.).
+3. Cualquier número de cuenta, celular, CI o NIT visible (ej. 62211864 o 6207125).
 Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "identificador": "Texto"}`
                       },
                       {
@@ -153,8 +153,8 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           }
         }
 
-        // VALIDACIÓN MATEMÁTICA Y DE DESTINATARIO FLEXIBLE
-        const isAmountValid = (extractedAmount === expectedAmount);
+        // REGLA NUEVA: Se acepta si el monto es MAYOR O IGUAL al esperado (si paga de más, pasa)
+        const isAmountValid = (extractedAmount >= expectedAmount);
         
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const destNorm = normalizeStr(extractedDestinatario);
@@ -163,7 +163,6 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
         const hasWilfredo = destNorm.includes('wilfredo');
         const hasCuellar = destNorm.includes('cuellar');
         
-        // Validamos por nombre, cuenta, celular (62211864) o CI/NIT (6207125 / 564163021)
         const isDestinatarioValid = (
           (hasWilfredo && hasCuellar) || 
           destNorm.includes('takenos') || 
@@ -179,18 +178,18 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
           }
-          responseText = `❌ *Pago Rechazado / Monto Incorrecto*\n\nHemos detectado un monto de *Bs. ${extractedAmount}* en tu comprobante, pero el precio exacto de *${productName}* es de *Bs. ${expectedAmount.toFixed(2)}*.\n\nPor favor, realiza la transferencia por el monto correcto. 🤝`;
+          responseText = `❌ *Pago Rechazado / Monto Insuficiente*\n\nHemos detectado un monto de *Bs. ${extractedAmount}*, el cual es menor al precio requerido de *Bs. ${expectedAmount.toFixed(2)}* para el producto *${productName}*.\n\nPor favor, completa el pago por el monto correcto. 🤝`;
         } else if (!isDestinatarioValid) {
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_DESTINATARIO' }).eq('id', pedidoId);
           }
           responseText = `❌ *Pago Rechazado / Destinatario Inválido*\n\nEl monto es correcto, pero el comprobante indica que fue enviado a *"${extractedDestinatario || 'Desconocido'}"*, el cual no corresponde a nuestras cuentas oficiales.\n\nPor favor verifica tu pago. ⚠️`;
         } else {
-          // PAGO EXITOSO Y VALIDADO
+          // PAGO EXITOSO (IGUAL O MAYOR AL PRECIO)
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
           }
-          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio: Bs. ${expectedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: QR / Transferencia\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
+          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio Pagado: Bs. ${extractedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: QR / Transferencia\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
