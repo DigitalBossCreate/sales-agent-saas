@@ -47,28 +47,55 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial y herramientas digitales. ¿Qué herramienta te gustaría potenciar hoy o sobre cuál deseas información? (Ej: *Gemini*) 🚀`, 
+            text: `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. ¿Qué herramienta te gustaría consultar o potenciar hoy? (Ej: *Gemini*) 🚀`, 
             parse_mode: 'Markdown' 
           })
         });
         return res.status(200).json({ success: true });
       }
 
-      // Manejo de objeciones, preguntas frecuentes y argumentos comerciales de Gemini
-      const isInfoQuery = text.includes('informacion') || text.includes('info') || text.includes('detalles') || text.includes('que es') || text.includes('cuanto cuesta') || text.includes('caro') || text.includes('duda') || text.includes('funciona');
+      // Manejo específico de objeciones sobre caídas, seguridad o confianza
+      if (text.includes('cae') || text.includes('garantia') || text.includes('seguro') || text.includes('estafa') || text.includes('perder')) {
+        const productos = await obtenerProductos();
+        const productoPrincipal = productos[0];
+
+        const objecionRespuesta = `Comprendo perfectamente tu preocupación por la estabilidad, *${userName}* 🤝.\n\n` +
+          `Te cuento que con nuestro acceso a **Gemini Advanced** cuentas con estabilidad garantizada y soporte técnico durante tus 18 meses completos. No trabajamos con métodos frágiles; aseguramos que tu cuenta opere de forma continua y sin sorpresas.\n\n` +
+          `💰 Inversión única: **Bs. ${productoPrincipal.precio}**\n\n` +
+          `¿Te gustaría que avancemos con tu acceso seguro? 👇`;
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: objecionRespuesta, 
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `🛒 ¡Sí, Comprar Ahora!`, callback_data: `start_purchase_${productoPrincipal.id}` }]
+              ]
+            }
+          })
+        });
+        return res.status(200).json({ success: true });
+      }
+
+      // Solicitud general de información o detalles del producto
+      const isInfoQuery = text.includes('informacion') || text.includes('info') || text.includes('detalles') || text.includes('que es') || text.includes('cuanto cuesta') || text.includes('precio');
       const isProductQuery = text.includes('gemin') || text.includes('gemeni') || text.includes('ia');
 
       if (isInfoQuery || (isProductQuery && !text.includes('comprar'))) {
         const productos = await obtenerProductos();
         const productoPrincipal = productos[0];
 
-        const ventasTexto = `💡 *Información Oficial & Beneficios - ${productoPrincipal.nombre}*\n\n` +
-          `✨ *¿Por qué elegir Gemini Advanced con nosotros?*\n` +
+        const ventasTexto = `💡 *Información Oficial - ${productoPrincipal.nombre}*\n\n` +
+          `✨ *¿Por qué elegirnos?*\n` +
           `• *18 Meses de Acceso Continuo:* Olvídate de renovaciones mensuales caras.\n` +
-          `• *Potencia Máxima:* Accede al modelo más avanzado de Google para programación, redacción, análisis de datos y proyectos complejos.\n\n` +
-          `🛡️ *Manejo de Objeciones & Garantía:*\n` +
-          `• _¿Es seguro?_ Totalmente, cuentas con soporte y estabilidad garantizada durante todo tu periodo.\n` +
-          `• _¿Cómo se entrega?_ De forma inmediata en cuanto validamos tu pago local o cripto.\n\n` +
+          `• *Potencia Máxima:* Accede al modelo más avanzado de Google para programación, redacción y proyectos complejos.\n\n` +
+          `🛡️ *Garantía y Seguridad:*\n` +
+          `• Soporte y estabilidad garantizada durante todo tu periodo.\n` +
+          `• Entrega inmediata al verificar tu pago local o cripto.\n\n` +
           `💰 *Inversión única:* Bs. ${productoPrincipal.precio}\n\n` +
           `¿Listo para dar el salto y llevar tu productividad al siguiente nivel? 👇`;
 
@@ -135,7 +162,6 @@ export default async function handler(req, res) {
         body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Procesando...' })
       });
 
-      // Manejo de Preguntas Frecuentes adicionales (Objeciones)
       if (data.startsWith('faq_gemini_')) {
         const prodId = data.replace('faq_gemini_', '');
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -143,7 +169,7 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `📌 *Preguntas Frecuentes / Objeciones Resueltas:*\n\n1️⃣ *¿Cuándo recibo el acceso?* \nInmediatamente después de que el admin verifique tu comprobante de pago (toma menos de 5 minutos).\n\n2️⃣ *¿Funciona en mi cuenta personal?* \nSí, se configura de manera segura y privada para que disfrutes sin interrupciones.\n\n¿Te queda alguna otra duda o avanzamos con tu compra? 🚀`, 
+            text: `📌 *Preguntas Frecuentes:*\n\n1️⃣ *¿Cuándo recibo el acceso?* \nInmediatamente después de que el admin verifique tu comprobante de pago.\n\n2️⃣ *¿Funciona en mi cuenta personal?* \nSí, de forma segura y privada.\n\n¿Te queda alguna otra duda o avanzamos con tu compra? 🚀`, 
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
@@ -156,7 +182,7 @@ export default async function handler(req, res) {
       else if (data.startsWith('start_purchase_')) {
         const prodId = data.replace('start_purchase_', '');
         const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const prod = productoPrincipal || { id: prodId, nombre: 'Gemini Advanced', precio: 72 };
+        const prod = productoPrincipal || { id: prodId, nombre: 'Gemini Advanced', precio: 67 };
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -180,7 +206,7 @@ export default async function handler(req, res) {
         const prodId = parts[2];
 
         const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const prod = productoPrincipal || { id: prodId, nombre: 'Gemini Advanced', precio: 72, imagen_url: '', qr_binance_url: '' };
+        const prod = productoPrincipal || { id: prodId, nombre: 'Gemini Advanced', precio: 67, imagen_url: '', qr_binance_url: '' };
 
         const qrUrl = method === 'takenos' ? prod.imagen_url : (prod.qr_binance_url || prod.imagen_url);
 
@@ -258,7 +284,6 @@ export default async function handler(req, res) {
           await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('estado', 'ESPERANDO_PAGO');
         } catch (e) {}
 
-        // 1. Enviar el producto principal comprado al cliente
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -269,14 +294,13 @@ export default async function handler(req, res) {
           })
         });
 
-        // 2. Cross-Selling / Venta Cruzada automática post-venta
         setTimeout(async () => {
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               chat_id: targetChatId, 
-              text: `🎁 *¡Oferta exclusiva para clientes VIP como tú!*\n\nYa que adquiriste Gemini Advanced, ¿te gustaría complementar tu ecosistema digital con acceso a herramientas de diseño o automatización con un descuento especial? Escribe *"ver catálogo"* para conocer más. 🔥`, 
+              text: `🎁 *¡Oferta exclusiva para clientes VIP!*\n\nYa que adquiriste Gemini Advanced, ¿te gustaría complementar tu ecosistema digital con más herramientas con descuento especial? Escribe *"ver catálogo"*. 🔥`, 
               parse_mode: 'Markdown' 
             })
           });
