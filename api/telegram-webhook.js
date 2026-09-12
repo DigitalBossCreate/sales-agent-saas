@@ -6,8 +6,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
 
-const TELEGRAM_TOKEN = '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(200).json({ status: 'Digital Boss Bot Core is running' });
@@ -15,16 +13,18 @@ export default async function handler(req, res) {
 
   try {
     const update = req.body;
-    const token = TELEGRAM_TOKEN;
+    const token = process.env.TELEGRAM_BOT_TOKEN;
 
     if (update && update.message) {
       const chatId = update.message.chat.id;
       const userName = update.message.from.first_name || 'Cliente';
       const text = (update.message.text || '').toLowerCase().trim();
 
-      // Respuesta directa y rápida de prueba para verificar que el bot ya responde
-      if (text.includes('hola') || text.includes('gemini') || text.includes('quiero')) {
-        const respuesta = `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Veo que te interesa *Gemini*. ¿Deseas adquirirlo ahora por Bs. 67? 🚀`;
+      // Respuesta rápida para comprobar que el bot responde de inmediato
+      if (text.includes('hola') || text.includes('gemini') || text.includes('quiero') || text === '/admin' || text === 'soy el admin') {
+        const respuesta = text === '/admin' || text === 'soy el admin' 
+          ? `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`` 
+          : `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Veo que te interesa *Gemini*. ¿Deseas adquirirlo ahora por Bs. 67? 🚀`;
         
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
             chat_id: chatId, 
             text: respuesta, 
             parse_mode: 'Markdown',
-            reply_markup: {
+            reply_markup: text === '/admin' || text === 'soy el admin' ? undefined : {
               inline_keyboard: [
                 [{ text: `🛒 ¡Sí, Comprar Ahora!`, callback_data: `start_purchase_gemini` }]
               ]
