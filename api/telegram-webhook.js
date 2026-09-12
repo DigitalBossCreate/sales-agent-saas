@@ -40,22 +40,22 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Paso 1: Saludo amigable general
-      if (text === 'hola' || text === 'buenas' || text === 'start' || text === '/start') {
+      // Saludo amigable general
+      if (text === 'hola' || text === 'buenas' || text === 'buenas tardes' || text === 'buenas noches' || text === 'start' || text === '/start') {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `¡Hola, *${userName}*! 👋 Bienvenido a nuestro asistente de ventas digital. ¿En qué producto estás interesado hoy? (Escribe por ejemplo: *Gemini*) 🚀`, 
+            text: `¡Hola, *${userName}*! 👋 Bienvenido a nuestro asistente de ventas digital. ¿En qué producto estás interesado hoy? (Por ejemplo: *Gemini*) 🚀`, 
             parse_mode: 'Markdown' 
           })
         });
         return res.status(200).json({ success: true });
       }
 
-      // Paso 2: Interés por el producto -> Muestra info y opciones de pago
-      const isProductQuery = text.includes('gemini') || text.includes('comprar') || text.includes('producto');
+      // Interés por el producto (tolerante a errores tipográficos)
+      const isProductQuery = text.includes('gemin') || text.includes('gemeni') || text.includes('comprar') || text.includes('producto') || text.includes('ia');
       if (isProductQuery) {
         const productos = await obtenerProductos();
         const productoPrincipal = productos[0];
@@ -78,7 +78,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Respuesta por defecto si escribe otra cosa
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,26 +100,24 @@ export default async function handler(req, res) {
         body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Cargando método de pago...' })
       });
 
-      // Paso 3: El cliente seleccionó el método de pago -> Enviar el QR correspondiente
       if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
         const parts = data.split('_');
         const method = parts[1]; // takenos o binance
         const prodId = parts[2];
 
-        const productos = await obtenerProductos();
-        const productoPrincipal = productos.find(p => p.id === prodId) || productos[0];
+        const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
+        const prod = productoPrincipal || { id: prodId, nombre: 'Gemini Advanced', precio: 67, imagen_url: '', qr_binance_url: '' };
 
-        // Guardar pedido preliminar
+        // Seleccionar QR según el botón pulsado
+        const qrUrl = method === 'takenos' ? prod.imagen_url : (prod.qr_binance_url || prod.imagen_url);
+
         try {
           await supabase.from('pedidos').insert([{
-            producto_id: productoPrincipal.id,
-            monto: productoPrincipal.precio,
+            producto_id: prod.id,
+            monto: prod.precio,
             estado: 'ESPERANDO_PAGO'
           }]);
         } catch (e) {}
-
-        // QR según selección (puedes ajustar URLs específicas en BD o usar la imagen_url)
-        const qrUrl = productoPrincipal.imagen_url;
 
         await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
@@ -132,7 +129,7 @@ export default async function handler(req, res) {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${productoPrincipal.id}` }]
+                [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${prod.id}` }]
               ]
             }
           })
