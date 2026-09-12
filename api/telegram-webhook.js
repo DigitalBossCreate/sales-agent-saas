@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN FLEXIBLE Y ROBUSTO
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ULTRA FLEXIBLE
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
           const fileData = await fileRes.json();
           if (fileData.ok) {
             const filePath = fileData.result.file_path;
-            imageUrl = `https://api.telegram.org/file/bot${token}/${filePath}`;
+            imageUrl = `https://api.telegram.org/bot${token}/${filePath}`;
           }
         } catch (fileErr) {
           console.error('Error obteniendo ruta de archivo Telegram:', fileErr);
@@ -121,10 +121,10 @@ export default async function handler(req, res) {
                     content: [
                       {
                         type: 'text',
-                        text: `Analiza esta imagen de comprobante de pago completo (incluso si está un poco cortada o inclinada). Extrae:
-1. Cualquier monto numérico visible de pago (ej. 67, 70, etc., o 0 si no se ve).
-2. El texto del destinatario o cuenta (ej. CUELLAR, WILFREDO, Takenos, etc.).
-3. Los números de cuenta, celular o datos visibles (ej. 62211864).
+                        text: `Analiza detalladamente este comprobante de pago. Lee cada línea de texto visible:
+1. Monto numérico de la transferencia (ej. 67, 70, etc.).
+2. Nombres o palabras clave que aparezcan en el destinatario o sección "Para" (ej. CUELLAR, NOHE, WILFREDO, Takenos, etc.).
+3. Números de cuenta o celular visibles (ej. 62211864 o 62***864).
 Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "identificador": "Texto"}`
                       },
                       {
@@ -153,7 +153,6 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           }
         }
 
-        // VALIDACIÓN FLEXIBLE: Si la cuenta destino es correcta (62211864 o Wilfredo/Takenos), aprobamos el pago (permitiendo si el monto es mayor o si la foto salió cortada pero la cuenta es 100% tuya)
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const destNorm = normalizeStr(extractedDestinatario);
         const infoNorm = normalizeStr(extractedInfo);
@@ -161,17 +160,17 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
         const hasWilfredo = destNorm.includes('wilfredo');
         const hasCuellar = destNorm.includes('cuellar');
         
+        // Validación sumamente flexible para evitar falsos rechazos por lectura de imagen
         const isAccountValid = (
           (hasWilfredo && hasCuellar) || 
           destNorm.includes('takenos') || 
           destNorm.includes('yolo pago') || 
-          infoNorm.includes('62211864') ||
-          infoNorm.includes('6207125') ||
-          infoNorm.includes('564163021')
+          infoNorm.includes('6221') ||
+          infoNorm.includes('6207') ||
+          infoNorm.includes('5641') ||
+          destNorm.includes('cuellar') ||
+          destNorm.includes('nohe')
         );
-
-        // Se aprueba si el número de cuenta/destinatario es tuyo Y el monto es >= esperado (o si la cuenta es tuya y la foto salió cortada sin mostrar monto)
-        const isPaymentValid = isAccountValid && (extractedAmount >= expectedAmount || extractedAmount === 0);
 
         let responseText = '';
 
@@ -179,14 +178,14 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_DESTINATARIO' }).eq('id', pedidoId);
           }
-          responseText = `❌ *Pago Rechazado / Destinatario Inválido*\n\nEl comprobante indica que fue enviado a *"${extractedDestinatario || 'Desconocido'}"*, el cual no corresponde a nuestras cuentas oficiales.\n\nPor favor verifica tu pago. ⚠️`;
+          responseText = `❌ *No pudimos verificar el comprobante* \n\nLa imagen no es completamente legible o el destinatario no coincide con nuestras cuentas oficiales. \n\nPor favor, **vuelve a enviar tu comprobante** asegurándote de que la imagen sea clara y nítida. 🔄📸`;
         } else if (extractedAmount > 0 && extractedAmount < expectedAmount) {
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
           }
-          responseText = `❌ *Pago Rechazado / Monto Insuficiente*\n\nHemos detectado un monto de *Bs. ${extractedAmount}*, el cual es menor al precio requerido de *Bs. ${expectedAmount.toFixed(2)}*.\n\nPor favor, completa el pago por el monto correcto. 🤝`;
+          responseText = `❌ *Pago Rechazado / Monto Insuficiente*\n\nHemos detectado un monto de *Bs. ${extractedAmount}*, el cual es menor al precio requerido de *Bs. ${expectedAmount.toFixed(2)}*.\n\nPor favor, completa el pago y **vuelve a enviar tu comprobante** correcto. 🔄`;
         } else {
-          // PAGO EXITOSO Y VALIDADO
+          // PAGO EXITOSO
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
           }
