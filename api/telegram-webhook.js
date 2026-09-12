@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN FLEXIBLE
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN FLEXIBLE Y ROBUSTO
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -121,10 +121,10 @@ export default async function handler(req, res) {
                     content: [
                       {
                         type: 'text',
-                        text: `Analiza este comprobante de transferencia o pago. Extrae con máxima atención:
-1. El monto exacto de dinero (busca etiquetas como "Monto", "Bs", valores numéricos de pago. Si dice "Bs 67.00", extrae 67.00).
-2. El nombre del destinatario o cuenta a quien se envía (ej. Wilfredo Cuellar, Takenos, Cuellar Nohe, etc.).
-3. Cualquier número de cuenta, celular, CI o NIT visible (ej. 62211864 o 6207125).
+                        text: `Analiza esta imagen de comprobante de pago completo (incluso si está un poco cortada o inclinada). Extrae:
+1. Cualquier monto numérico visible de pago (ej. 67, 70, etc., o 0 si no se ve).
+2. El texto del destinatario o cuenta (ej. CUELLAR, WILFREDO, Takenos, etc.).
+3. Los números de cuenta, celular o datos visibles (ej. 62211864).
 Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "identificador": "Texto"}`
                       },
                       {
@@ -153,9 +153,7 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           }
         }
 
-        // REGLA NUEVA: Se acepta si el monto es MAYOR O IGUAL al esperado (si paga de más, pasa)
-        const isAmountValid = (extractedAmount >= expectedAmount);
-        
+        // VALIDACIÓN FLEXIBLE: Si la cuenta destino es correcta (62211864 o Wilfredo/Takenos), aprobamos el pago (permitiendo si el monto es mayor o si la foto salió cortada pero la cuenta es 100% tuya)
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const destNorm = normalizeStr(extractedDestinatario);
         const infoNorm = normalizeStr(extractedInfo);
@@ -163,7 +161,7 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
         const hasWilfredo = destNorm.includes('wilfredo');
         const hasCuellar = destNorm.includes('cuellar');
         
-        const isDestinatarioValid = (
+        const isAccountValid = (
           (hasWilfredo && hasCuellar) || 
           destNorm.includes('takenos') || 
           destNorm.includes('yolo pago') || 
@@ -172,24 +170,27 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           infoNorm.includes('564163021')
         );
 
+        // Se aprueba si el número de cuenta/destinatario es tuyo Y el monto es >= esperado (o si la cuenta es tuya y la foto salió cortada sin mostrar monto)
+        const isPaymentValid = isAccountValid && (extractedAmount >= expectedAmount || extractedAmount === 0);
+
         let responseText = '';
 
-        if (!isAmountValid) {
-          if (pedidoId) {
-            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
-          }
-          responseText = `❌ *Pago Rechazado / Monto Insuficiente*\n\nHemos detectado un monto de *Bs. ${extractedAmount}*, el cual es menor al precio requerido de *Bs. ${expectedAmount.toFixed(2)}* para el producto *${productName}*.\n\nPor favor, completa el pago por el monto correcto. 🤝`;
-        } else if (!isDestinatarioValid) {
+        if (!isAccountValid) {
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_DESTINATARIO' }).eq('id', pedidoId);
           }
-          responseText = `❌ *Pago Rechazado / Destinatario Inválido*\n\nEl monto es correcto, pero el comprobante indica que fue enviado a *"${extractedDestinatario || 'Desconocido'}"*, el cual no corresponde a nuestras cuentas oficiales.\n\nPor favor verifica tu pago. ⚠️`;
+          responseText = `❌ *Pago Rechazado / Destinatario Inválido*\n\nEl comprobante indica que fue enviado a *"${extractedDestinatario || 'Desconocido'}"*, el cual no corresponde a nuestras cuentas oficiales.\n\nPor favor verifica tu pago. ⚠️`;
+        } else if (extractedAmount > 0 && extractedAmount < expectedAmount) {
+          if (pedidoId) {
+            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
+          }
+          responseText = `❌ *Pago Rechazado / Monto Insuficiente*\n\nHemos detectado un monto de *Bs. ${extractedAmount}*, el cual es menor al precio requerido de *Bs. ${expectedAmount.toFixed(2)}*.\n\nPor favor, completa el pago por el monto correcto. 🤝`;
         } else {
-          // PAGO EXITOSO (IGUAL O MAYOR AL PRECIO)
+          // PAGO EXITOSO Y VALIDADO
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
           }
-          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio Pagado: Bs. ${extractedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: QR / Transferencia\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
+          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio Pagado: Bs. ${extractedAmount > 0 ? extractedAmount.toFixed(2) : expectedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario || 'Wilfredo Cuellar Nohe'}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: QR / Transferencia\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
