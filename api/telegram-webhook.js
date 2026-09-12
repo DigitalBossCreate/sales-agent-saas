@@ -7,6 +7,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || ''; 
+const VERCEL_URL = 'https://sales-agent-saas-drab.vercel.app'; // Tu dominio de Vercel
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -228,17 +229,18 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        const qrTakenosUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/takenos-ok.jpeg';
-        const takenosText = `🇧🇴 *Método seleccionado: QR Takenos*\n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto exacto:* **Bs. 67.00**\n• *Titular:* Wilfredo Cuellar Nohe\n• *Entidad:* Takenos (NIT: 564163021)\n\n📲 *Escanea o abre tu QR aquí:* \n[VER CÓDIGO QR DE TAKENOS](${qrTakenosUrl})\n\n📸 Una vez realizado tu pago, **envía la captura del comprobante** por este chat. 🚀`;
+        // URL servida estáticamente desde tu propio Vercel
+        const qrTakenosUrl = `${VERCEL_URL}/takenos.jpeg`;
+        const captionText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📸 Escanea este QR o transfiere y **envía tu comprobante en foto** por este chat. 🚀`;
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: takenosText, 
-            parse_mode: 'Markdown',
-            disable_web_page_preview: false 
+            photo: qrTakenosUrl, 
+            caption: captionText, 
+            parse_mode: 'Markdown' 
           })
         });
       } 
@@ -249,8 +251,9 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
-        const qrBinanceUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/QR%20Binance.jpeg';
-        const binanceText = `💵 *Método seleccionado: USDT Binance*\n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto:* $10 USDT\n• *Red:* Tron (TRC20)\n• *Wallet:* \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\n📲 *Escanea o abre tu QR aquí:* \n[VER CÓDIGO QR DE BINANCE](${qrBinanceUrl})\n\n👇 Haz clic en el botón de abajo una vez realizado tu pago para notificar al administrador:`;
+        // URL servida estáticamente desde tu propio Vercel
+        const qrBinanceUrl = `${VERCEL_URL}/binance.jpeg`;
+        const captionText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n👇 Escanea el QR y haz clic en el botón de abajo una vez realizado tu pago:`;
 
         const binanceKeyboard = {
           inline_keyboard: [
@@ -258,15 +261,15 @@ export default async function handler(req, res) {
           ]
         };
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: binanceText, 
+            photo: qrBinanceUrl, 
+            caption: captionText, 
             parse_mode: 'Markdown', 
-            reply_markup: binanceKeyboard,
-            disable_web_page_preview: false 
+            reply_markup: binanceKeyboard 
           })
         });
       } 
