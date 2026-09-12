@@ -36,16 +36,12 @@ export default async function handler(req, res) {
       const text = (update.message.text || '').trim();
       const textLower = text.toLowerCase();
 
-      // Permitir acceso de admin si coincide con la variable o si el comando es explícito de admin
-      const isAdmin = (ADMIN_CHAT_ID && chatId === ADMIN_CHAT_ID.toString()) || textLower === '/admin' || textLower === 'soy el admin';
-
-      const clienteId = await gestionarCliente(userId, userName, userUsername);
-      await guardarMensajeHistorial(userId, 'user', textLower);
-
-      // ==========================================
-      // ASISTENTE DE ADMINISTRACIÓN GUIADA (ADMIN)
-      // ==========================================
-      if (isAdmin) {
+      // =========================================================================
+      // 1. DETECCIÓN PRIORITARIA DE ADMINISTRADOR (Va antes que todo lo demás)
+      // =========================================================================
+      if (textLower === '/admin' || textLower === 'soy el admin' || textLower.startsWith('/nuevo') || textLower === '/catalogo_admin' || textLower.startsWith('/eliminar ')) {
+        await gestionarCliente(userId, userName, userUsername);
+        
         const { data: adminInfo } = await supabase
           .from('clientes')
           .select('estado_admin, temp_prod_data')
@@ -180,7 +176,10 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true });
         }
       }
-      // ==========================================
+      // =========================================================================
+
+      const clienteId = await gestionarCliente(userId, userName, userUsername);
+      await guardarMensajeHistorial(userId, 'user', textLower);
 
       if (textLower.startsWith('/liberar ')) {
         const targetId = text.replace('/liberar ', '').trim();
