@@ -299,7 +299,7 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
-      // BOTÓN TAKENOS: RESPUESTA INSTÁNTANEA CON DATOS OFICIALES
+      // BOTÓN TAKENOS: ENVÍA LA FOTO DEL QR OFICIAL Y LUEGO LOS DATOS
       if (data === 'pay_takenos') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -307,19 +307,23 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        const takenosText = `🇧🇴 *Método seleccionado: QR Takenos* \n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto exacto:* **Bs. 67.00** (Monto abierto)\n\n📋 *Datos para la transferencia:* \n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n• **Vigencia QR:** Hasta el 11/09/2027\n\n📸 *Instrucción:* Realiza tu pago mediante transferencia o escaneando tu QR de Takenos, y **envía la captura del comprobante por este chat** para validarlo automáticamente. 🚀`;
+        // Enlaces directos raw de tus imágenes QR subidas en tu repositorio GitHub
+        const takenosQrUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/Takenos%20ok.jpeg';
+        const captionText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📸 Escanea este QR o transfiere y **envía tu comprobante en foto** por este chat para activar tu suscripción. 🚀`;
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        // 1. Enviar la foto del QR
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: takenosText,
+            photo: takenosQrUrl,
+            caption: captionText,
             parse_mode: 'Markdown'
           })
         });
       } 
-      // BOTÓN BINANCE: RESPUESTA INSTÁNTANEA CON DATOS Y BOTÓN DE AVISO
+      // BOTÓN BINANCE: ENVÍA LA FOTO DEL QR DE BINANCE Y EL BOTÓN DE AVISO
       else if (data === 'pay_binance') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -327,7 +331,8 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
-        const binanceText = `💵 *Método seleccionado: USDT Binance* \n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto:* $10 USDT (o equivalente)\n\n📋 *Instrucciones de depósito:* \n• **Red:** Tron (TRC20)\n• **Wallet / Billetera:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\n⚠️ *Aviso importante:* No envíes NFTs ni uses redes distintas a TRC20.\n\n👇 Una vez realizado tu pago, haz clic en el botón de abajo para notificar al administrador:`;
+        const binanceQrUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/QR%20Binance.jpeg';
+        const captionText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n👇 Escanea el QR y haz clic en el botón de abajo una vez realizado tu pago para notificar al administrador:`;
 
         const binanceKeyboard = {
           inline_keyboard: [
@@ -335,12 +340,14 @@ export default async function handler(req, res) {
           ]
         };
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        // 1. Enviar la foto del QR de Binance con el botón interactivo
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: binanceText,
+            photo: binanceQrUrl,
+            caption: captionText,
             parse_mode: 'Markdown',
             reply_markup: binanceKeyboard
           })
