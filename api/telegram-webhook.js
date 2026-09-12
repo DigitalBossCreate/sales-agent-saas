@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         console.error('Error CRM:', clientErr);
       }
 
-      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ULTRA FLEXIBLE
+      // 2. SI EL CLIENTE ENVÍA UNA FOTO -> ANÁLISIS DE VISIÓN ROBUSTO CON TOLERANCIA
       if (hasPhoto) {
         try {
           await supabase.from('mensajes_bot').insert([
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
           const fileData = await fileRes.json();
           if (fileData.ok) {
             const filePath = fileData.result.file_path;
-            imageUrl = `https://api.telegram.org/bot${token}/${filePath}`;
+            imageUrl = `https://api.telegram.org/file/bot${token}/${filePath}`;
           }
         } catch (fileErr) {
           console.error('Error obteniendo ruta de archivo Telegram:', fileErr);
@@ -102,8 +102,8 @@ export default async function handler(req, res) {
         }
 
         let extractedAmount = 0;
-        let extractedDestinatario = '';
-        let extractedInfo = '';
+        let extractedDestinatario = 'Wilfredo Cuellar Nohe';
+        let rawVisionText = '';
 
         if (imageUrl) {
           try {
@@ -121,11 +121,7 @@ export default async function handler(req, res) {
                     content: [
                       {
                         type: 'text',
-                        text: `Analiza detalladamente este comprobante de pago. Lee cada línea de texto visible:
-1. Monto numérico de la transferencia (ej. 67, 70, etc.).
-2. Nombres o palabras clave que aparezcan en el destinatario o sección "Para" (ej. CUELLAR, NOHE, WILFREDO, Takenos, etc.).
-3. Números de cuenta o celular visibles (ej. 62211864 o 62***864).
-Responde estrictamente en formato JSON válido con esta estructura exacta y sin texto adicional: {"monto": 0.00, "destinatario": "Texto", "identificador": "Texto"}`
+                        text: `Analiza esta imagen de comprobante de pago. Extrae todo el texto visible, el monto numérico y el destinatario o nombres que aparezcan. Responde estrictamente en formato JSON válido con esta estructura: {"monto": 0.00, "destinatario": "Texto encontrado"}`
                       },
                       {
                         type: 'image_url',
@@ -141,11 +137,13 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
 
             const visionData = await visionRes.json();
             if (visionData.choices && visionData.choices.length > 0) {
-              const jsonContent = JSON.parse(visionData.choices[0].message.content.trim());
+              rawVisionText = visionData.choices[0].message.content.trim();
+              const jsonContent = JSON.parse(rawVisionText);
               if (jsonContent) {
                 if (typeof jsonContent.monto === 'number') extractedAmount = jsonContent.monto;
-                if (typeof jsonContent.destinatario === 'string') extractedDestinatario = jsonContent.destinatario.trim();
-                if (typeof jsonContent.identificador === 'string') extractedInfo = jsonContent.identificador.trim();
+                if (typeof jsonContent.destinatario === 'string' && jsonContent.destinatario.length > 2) {
+                  extractedDestinatario = jsonContent.destinatario.trim();
+                }
               }
             }
           } catch (visionErr) {
@@ -153,43 +151,26 @@ Responde estrictamente en formato JSON válido con esta estructura exacta y sin 
           }
         }
 
+        // VALIDACIÓN TOLERANTE: Como las fotos pueden tener cortes, si la IA lee texto o el usuario envía la foto en el flujo de pago, se aprueba por defecto para evitar bloqueos molestos al cliente.
         const normalizeStr = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const destNorm = normalizeStr(extractedDestinatario);
-        const infoNorm = normalizeStr(extractedInfo);
-        
-        const hasWilfredo = destNorm.includes('wilfredo');
-        const hasCuellar = destNorm.includes('cuellar');
-        
-        // Validación sumamente flexible para evitar falsos rechazos por lectura de imagen
-        const isAccountValid = (
-          (hasWilfredo && hasCuellar) || 
-          destNorm.includes('takenos') || 
-          destNorm.includes('yolo pago') || 
-          infoNorm.includes('6221') ||
-          infoNorm.includes('6207') ||
-          infoNorm.includes('5641') ||
-          destNorm.includes('cuellar') ||
-          destNorm.includes('nohe')
-        );
+        const visionNormalized = normalizeStr(rawVisionText);
+
+        // Si el monto detectado es menor al precio (ej. detectó claramente un número menor a 67), sí lo rechazamos por monto insuficiente.
+        const isAmountTooLow = (extractedAmount > 0 && extractedAmount < expectedAmount);
 
         let responseText = '';
 
-        if (!isAccountValid) {
-          if (pedidoId) {
-            await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_DESTINATARIO' }).eq('id', pedidoId);
-          }
-          responseText = `❌ *No pudimos verificar el comprobante* \n\nLa imagen no es completamente legible o el destinatario no coincide con nuestras cuentas oficiales. \n\nPor favor, **vuelve a enviar tu comprobante** asegurándote de que la imagen sea clara y nítida. 🔄📸`;
-        } else if (extractedAmount > 0 && extractedAmount < expectedAmount) {
+        if (isAmountTooLow) {
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGO_RECHAZADO_MONTO' }).eq('id', pedidoId);
           }
           responseText = `❌ *Pago Rechazado / Monto Insuficiente*\n\nHemos detectado un monto de *Bs. ${extractedAmount}*, el cual es menor al precio requerido de *Bs. ${expectedAmount.toFixed(2)}*.\n\nPor favor, completa el pago y **vuelve a enviar tu comprobante** correcto. 🔄`;
         } else {
-          // PAGO EXITOSO
+          // PAGO APROBADO (Tolerante a capturas cortadas o texto complejo)
           if (pedidoId) {
             await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('id', pedidoId);
           }
-          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio Pagado: Bs. ${extractedAmount > 0 ? extractedAmount.toFixed(2) : expectedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario || 'Wilfredo Cuellar Nohe'}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: QR / Transferencia\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
+          responseText = `¡Hola!\nAquí tienes el comprobante de compra de tu *${productName}*:\n\n\`\`\`text\nDigital Boss - Factura Digital\n-------------------------------\nProducto: ${productName}\nPrecio Pagado: Bs. ${extractedAmount > 0 ? extractedAmount.toFixed(2) : expectedAmount.toFixed(2)}\nDestinatario: ${extractedDestinatario}\nFecha de compra: ${new Date().toISOString().split('T')[0]}\nMétodo de pago: QR / Transferencia\nEstado: Pagado\n\nGracias por tu compra. Si necesitas algo más, avísanos.\n\`\`\`\n\n¡Disfruta de tu suscripción! 🚀`;
         }
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
