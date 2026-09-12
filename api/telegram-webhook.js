@@ -13,6 +13,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ status: 'Digital Boss Bot is running' });
   }
 
+  // Responder de inmediato a Telegram para evitar timeouts en Vercel
+  res.status(200).json({ success: true });
+
   try {
     const update = req.body;
     const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -37,7 +40,7 @@ export default async function handler(req, res) {
             parse_mode: 'Markdown'
           })
         });
-        return res.status(200).json({ success: true });
+        return;
       }
 
       let clienteId = null;
@@ -170,7 +173,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ chat_id: chatId, text: responseText, parse_mode: 'Markdown' })
         });
 
-        return res.status(200).json({ success: true });
+        return;
       }
 
       const isBuying = text.includes('comprar') || text.includes('quiero') || text.includes('adquirir') || text.includes('pagar') || text.includes('gemini');
@@ -205,7 +208,7 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text: aiResponse, parse_mode: 'Markdown', reply_markup: inlineKeyboard })
         });
-        return res.status(200).json({ success: true });
+        return;
       }
 
       let aiResponse = '¡Hola! Bienvenido al sistema. ¿En qué puedo ayudarte?';
@@ -228,7 +231,6 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        // URL corregida y limpia apuntando a Supabase Storage
         const takenosQrUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/takenos-ok.jpeg';
         const captionText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📸 Escanea este QR o transfiere y **envía tu comprobante en foto** por este chat. 🚀`;
 
@@ -245,7 +247,6 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
-        // URL corregida y limpia apuntando a Supabase Storage
         const binanceQrUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/QR%20Binance.jpeg';
         const captionText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n👇 Escanea el QR y haz clic en el botón de abajo una vez realizado tu pago:`;
 
@@ -316,7 +317,7 @@ export default async function handler(req, res) {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: `✅ Producto entregado con éxito al cliente.`, parse_mode: 'Markdown' })
+          body: JSON.stringify({ chatId, text: `✅ Producto entregado con éxito al cliente.`, parse_mode: 'Markdown' })
         });
       }
       else if (data.startsWith('admin_reject_')) {
@@ -335,10 +336,7 @@ export default async function handler(req, res) {
         });
       }
     }
-
-    return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Error general:', error);
-    return res.status(500).json({ error: error.message });
   }
 }
