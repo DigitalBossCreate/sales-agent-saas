@@ -1,3 +1,4 @@
 {
-  "public": ["takenos.jpeg", "binance.jpeg"]
+  "buildCommand": "",
+  "outputDirectory": "."
 }
