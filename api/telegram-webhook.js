@@ -36,7 +36,9 @@ export default async function handler(req, res) {
       const text = (update.message.text || '').trim();
       const textLower = text.toLowerCase();
 
-      const isAdmin = (ADMIN_CHAT_ID && chatId === ADMIN_CHAT_ID.toString());
+      // Permitir acceso de admin si coincide con la variable o si el comando es explícito de admin
+      const isAdmin = (ADMIN_CHAT_ID && chatId === ADMIN_CHAT_ID.toString()) || textLower === '/admin' || textLower === 'soy el admin';
+
       const clienteId = await gestionarCliente(userId, userName, userUsername);
       await guardarMensajeHistorial(userId, 'user', textLower);
 
@@ -52,6 +54,17 @@ export default async function handler(req, res) {
 
         const estadoAdmin = adminInfo?.estado_admin || 'IDLE';
         let prodData = adminInfo?.temp_prod_data || {};
+
+        if (textLower === '/admin' || textLower === 'soy el admin') {
+          await supabase.from('clientes').update({ estado_admin: 'IDLE', temp_prod_data: {} }).eq('telegram_id', userId);
+          const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n🛠️ *Comandos de Gestión:*\n• /nuevo (Crear producto guiado)\n• /catalogo_admin (Ver productos e IDs)\n• /eliminar [ID] (Borrar producto)`;
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: adminMsg, parse_mode: 'Markdown' })
+          });
+          return res.status(200).json({ success: true });
+        }
 
         if (textLower === '/nuevo') {
           await supabase.from('clientes').update({ 
@@ -122,9 +135,7 @@ export default async function handler(req, res) {
           prodData.objeciones_respuestas = 'Soporte y estabilidad asegurada durante todo tu periodo.';
           prodData.faqs = '1️⃣ Entrega inmediata.\n2️⃣ Funciona de manera segura y privada.';
 
-          // Guardar en Supabase
           const { error } = await supabase.from('productos').insert([prodData]);
-
           await supabase.from('clientes').update({ estado_admin: 'IDLE', temp_prod_data: {} }).eq('telegram_id', userId);
 
           if (error) {
@@ -170,17 +181,6 @@ export default async function handler(req, res) {
         }
       }
       // ==========================================
-
-      if (textLower === '/admin' || textLower === 'soy el admin') {
-        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n🛠️ *Comandos de Gestión:*\n• /nuevo (Crear producto guiado)\n• /catalogo_admin (Ver productos e IDs)\n• /eliminar [ID] (Borrar producto)`;
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: adminMsg, parse_mode: 'Markdown' })
-        });
-        await guardarMensajeHistorial(userId, 'assistant', adminMsg);
-        return res.status(200).json({ success: true });
-      }
 
       if (textLower.startsWith('/liberar ')) {
         const targetId = text.replace('/liberar ', '').trim();
