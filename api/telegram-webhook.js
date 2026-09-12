@@ -299,7 +299,7 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
-      // BOTÓN TAKENOS: ENVÍA LA FOTO DEL QR DESDE SUPABASE STORAGE
+      // BOTÓN TAKENOS: ENVÍA TEXTO INFORMATIVO CON ACCESO DIRECTO AL QR Y DATOS
       if (data === 'pay_takenos') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -307,22 +307,21 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        // ⚠️ REEMPLAZA ESTA URL CON EL ENLACE PÚBLICO DE SUPABASE PARA TAKENOS
-        const takenosQrUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/takenos-ok.jpeg';
-        const captionText = `🇧🇴 *QR Takenos - Bs. 67.00*\n\n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n📸 Escanea este QR o transfiere y **envía tu comprobante en foto** por este chat para activar tu suscripción. 🚀`;
+        const qrImageUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/takenos-ok.jpeg';
+        const takenosText = `🇧🇴 *Método seleccionado: QR Takenos* \n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto exacto:* **Bs. 67.00**\n\n📋 *Datos para la transferencia:* \n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n\n🔗 [👉 CLIC AQUÍ PARA VER Y ESCANEAR EL QR](${qrImageUrl})\n\n📸 *Instrucción:* Realiza tu pago y **envía la captura del comprobante** por este chat para validarlo automáticamente. 🚀`;
 
-        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            photo: takenosQrUrl,
-            caption: captionText,
-            parse_mode: 'Markdown'
+            text: takenosText,
+            parse_mode: 'Markdown',
+            disable_web_page_preview: false
           })
         });
       } 
-      // BOTÓN BINANCE: ENVÍA LA FOTO DEL QR DE BINANCE DESDE SUPABASE STORAGE
+      // BOTÓN BINANCE: ENVÍA TEXTO INFORMATIVO CON ACCESO DIRECTO AL QR DE BINANCE
       else if (data === 'pay_binance') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -330,9 +329,8 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
-        // ⚠️ REEMPLAZA ESTA URL CON EL ENLACE PÚBLICO DE SUPABASE PARA BINANCE
-        const binanceQrUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/QR%20Binance.jpeg';
-        const captionText = `💵 *USDT Binance (TRC20)*\n\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n• **Monto:** $10 USDT (Bs. 67)\n\n👇 Escanea el QR y haz clic en el botón de abajo una vez realizado tu pago para notificar al administrador:`;
+        const qrImageUrl = 'https://nvzovzegagabhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/QR%20Binance.jpeg';
+        const binanceText = `💵 *Método seleccionado: USDT Binance* \n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto:* $10 USDT\n\n📋 *Instrucciones:* \n• **Red:** Tron (TRC20)\n• **Wallet:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\n🔗 [👉 CLIC AQUÍ PARA VER EL QR DE BINANCE](${qrImageUrl})\n\n👇 Una vez realizado tu pago, haz clic en el botón de abajo para notificar al administrador:`;
 
         const binanceKeyboard = {
           inline_keyboard: [
@@ -340,15 +338,15 @@ export default async function handler(req, res) {
           ]
         };
 
-        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            photo: binanceQrUrl,
-            caption: captionText,
+            text: binanceText,
             parse_mode: 'Markdown',
-            reply_markup: binanceKeyboard
+            reply_markup: binanceKeyboard,
+            disable_web_page_preview: false
           })
         });
       } 
@@ -438,22 +436,12 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Pago rechazado.' })
         });
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${token}(\`telegram_bot_token\`)/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: targetClientChatId,
             text: `❌ *Pago No Verificado*\n\nNo pudimos confirmar tu depósito en Binance. Si realizaste el pago, por favor contacta al soporte. ⚠️`,
-            parse_mode: 'Markdown'
-          })
-        });
-
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `❌ *Pago Rechazado*\nSe notificó al cliente que no se pudo verificar su pago.`,
             parse_mode: 'Markdown'
           })
         });
