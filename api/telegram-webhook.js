@@ -299,7 +299,7 @@ export default async function handler(req, res) {
       const data = callbackQuery.data;
       const token = process.env.TELEGRAM_BOT_TOKEN;
 
-      // BOTÓN TAKENOS: ENVÍA LA IMAGEN QR DE TAKENOS
+      // BOTÓN TAKENOS: RESPUESTA INSTÁNTANEA CON DATOS OFICIALES
       if (data === 'pay_takenos') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -307,30 +307,19 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡QR Takenos seleccionado!' })
         });
 
-        // URL pública de tu QR Takenos subido a GitHub (ej: https://raw.githubusercontent.com/tu-usuario/tu-repo/main/Takenos%20ok_2.jpeg)
-        const takenosQrUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/Takenos%20ok_2.jpeg'; 
-        const captionText = `*Método seleccionado: QR Takenos / Bs. 67.00*\n\n📋 *Instrucciones:* Escanea el código QR o realiza la transferencia por el monto exacto de **Bs. 67.00** a Takenos (NIT: 564163021) o a nombre de **Wilfredo Cuellar Nohe**.\n\nEnvía tu comprobante en foto por este chat para validarlo automáticamente. 🚀`;
+        const takenosText = `🇧🇴 *Método seleccionado: QR Takenos* \n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto exacto:* **Bs. 67.00** (Monto abierto)\n\n📋 *Datos para la transferencia:* \n• **Titular:** Wilfredo Cuellar Nohe\n• **Entidad:** Takenos (NIT: 564163021)\n• **Vigencia QR:** Hasta el 11/09/2027\n\n📸 *Instrucción:* Realiza tu pago mediante transferencia o escaneando tu QR de Takenos, y **envía la captura del comprobante por este chat** para validarlo automáticamente. 🚀`;
 
-        try {
-          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              photo: takenosQrUrl,
-              caption: captionText,
-              parse_mode: 'Markdown'
-            })
-          });
-        } catch (e) {
-          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: captionText, parse_mode: 'Markdown' })
-          });
-        }
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: takenosText,
+            parse_mode: 'Markdown'
+          })
+        });
       } 
-      // BOTÓN BINANCE: ENVÍA LA IMAGEN QR DE BINANCE
+      // BOTÓN BINANCE: RESPUESTA INSTÁNTANEA CON DATOS Y BOTÓN DE AVISO
       else if (data === 'pay_binance') {
         await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
           method: 'POST',
@@ -338,9 +327,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ callback_query_id: callbackQuery.id, text: '¡Binance seleccionado!' })
         });
 
-        // URL pública de tu QR Binance subido a GitHub (ej: https://raw.githubusercontent.com/willycuellar/telegram-bot/main/QR%20Binance.jpeg)
-        const binanceQrUrl = 'https://raw.githubusercontent.com/willycuellar/telegram-bot/main/QR%20Binance.jpeg'; 
-        const captionText = `*Método seleccionado: USDT Binance (TRC20)*\n\n📋 *Instrucciones:* Escanea el QR o deposita en USDT a la red TRC20:\n\`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\nHaz clic en el botón de abajo una vez realizado tu pago para notificar al administrador. 🚀`;
+        const binanceText = `💵 *Método seleccionado: USDT Binance* \n\n📦 *Producto:* Gemini Advanced 18 Meses\n💰 *Monto:* $10 USDT (o equivalente)\n\n📋 *Instrucciones de depósito:* \n• **Red:** Tron (TRC20)\n• **Wallet / Billetera:** \`TE1tMb4avzU1toWUNKAc8ReGeNyVZFRKxb\`\n\n⚠️ *Aviso importante:* No envíes NFTs ni uses redes distintas a TRC20.\n\n👇 Una vez realizado tu pago, haz clic en el botón de abajo para notificar al administrador:`;
 
         const binanceKeyboard = {
           inline_keyboard: [
@@ -348,30 +335,16 @@ export default async function handler(req, res) {
           ]
         };
 
-        try {
-          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              photo: binanceQrUrl,
-              caption: captionText,
-              parse_mode: 'Markdown',
-              reply_markup: binanceKeyboard
-            })
-          });
-        } catch (e) {
-          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text: captionText,
-              parse_mode: 'Markdown',
-              reply_markup: binanceKeyboard
-            })
-          });
-        }
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: binanceText,
+            parse_mode: 'Markdown',
+            reply_markup: binanceKeyboard
+          })
+        });
       } 
       else if (data.startsWith('notify_binance_')) {
         const targetClientChatId = data.replace('notify_binance_', '');
