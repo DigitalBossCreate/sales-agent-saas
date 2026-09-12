@@ -37,7 +37,7 @@ export default async function handler(req, res) {
       const textLower = text.toLowerCase();
 
       // =========================================================================
-      // REGLA DE ORO / BLOQUE DE ADMIN Y ASISTENTE GUIADO (Blindado)
+      // MÓDULO DE ADMINISTRACIÓN (Con alta prioridad, sin tocar el resto)
       // =========================================================================
       if (textLower === '/admin' || textLower === 'soy el admin' || textLower.startsWith('/nuevo') || textLower === '/catalogo_admin' || textLower.startsWith('/eliminar ')) {
         await gestionarCliente(userId, userName, userUsername);
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: `Paso 4/6: Define el **Tipo de Entrega**. Escribe \`manual\` (si pides correo y activas tú, ej: cuentas/IA) o \`automatico\` (si entregas enlace directo, ej: cursos):`, parse_mode: 'Markdown' })
+            body: JSON.stringify({ chat_id: chatId, text: `Paso 4/6: Define el **Tipo de Entrega**. Escribe \`manual\` (si pides correo y activas tú) o \`automatico\` (si entregas enlace directo):`, parse_mode: 'Markdown' })
           });
           return res.status(200).json({ success: true });
         }
@@ -239,7 +239,6 @@ export default async function handler(req, res) {
       }
       // --------------------------------------------------------------------------------------------
 
-      // Si el cliente dice que "no quiere"
       if (textLower.startsWith('no ') || textLower.includes('no quiero') || textLower.includes('no gracias')) {
         const msgNo = `Comprendo perfectamente, *${userName}* 👍. Si en algún momento cambias de opinión o necesitas otra herramienta digital, aquí estaré para ayudarte. ¡Que tengas un excelente día! 😊`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -251,7 +250,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Consultar historial para contexto
       const { data: historialReciente } = await supabase
         .from('historial_chat')
         .select('mensaje, rol')
@@ -262,7 +260,6 @@ export default async function handler(req, res) {
       const contextoPrevio = historialReciente ? historialReciente.map(h => h.mensaje).join(' ') : '';
       const hablabaDeProducto = contextoPrevio.includes('gemin') || contextoPrevio.includes('ia') || contextoPrevio.includes('curso');
 
-      // Saludo amigable general
       if ((textLower === 'hola' || textLower === 'buenas' || textLower === 'buenas tardes' || textLower === 'buenas noches' || textLower === 'start' || textLower === '/start') && !hablabaDeProducto) {
         const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. ¿Qué herramienta o curso te gustaría consultar hoy? (Ej: *Gemini*) 🚀`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -274,15 +271,13 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Obtener producto principal de la base de datos
       const productos = await obtenerProductos();
       const productoPrincipal = productos[0] || {};
       const nombreProd = productoPrincipal.nombre || 'Gemini Advanced 18 Meses';
       const precioProd = productoPrincipal.precio || 67;
       const promptProd = productoPrincipal.prompt_ventas || 'Acceso completo y premium durante 18 meses con estabilidad garantizada.';
-      const objecionesProd = productoPrincipal.objeciones_respuestas || 'Cuentas con soporte técnico y estabilidad durante todo tu periodo.';
+      const objecionesProd = productoPrincipal.objeciones_respuestas || 'Cuentas com soporte técnico y estabilidad durante todo tu periodo.';
 
-      // Envío de video de persuasión dinámico
       if (textLower.includes('video') || textLower.includes('demosturacion') || textLower.includes('muestra') || textLower.includes('como funciona') || textLower.includes('ver')) {
         const videoUrl = productoPrincipal.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
 
@@ -306,7 +301,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Manejo dinámico de objeciones
       if (textLower.includes('correo') || textLower.includes('personal') || textLower.includes('activa') || textLower.includes('cae') || textLower.includes('garantia') || textLower.includes('seguro') || (hablabaDeProducto && (textLower.includes('si') || textLower.includes('como') || textLower.includes('donde')))) {
         const respuestaObjecionDinamica = `¡Exacto, *${userName}*! 🤝\n\n` +
           `${objecionesProd}\n\n` +
@@ -331,7 +325,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Solicitud general de información
       const isInfoQuery = textLower.includes('informacion') || textLower.includes('info') || textLower.includes('detalles') || textLower.includes('que es') || textLower.includes('cuanto cuesta') || textLower.includes('precio');
       const isProductQuery = textLower.includes('gemin') || textLower.includes('gemeni') || textLower.includes('ia') || textLower.includes('curso');
 
@@ -363,7 +356,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Intención directa de compra
       if (textLower.includes('comprar') || textLower.includes('adquirir') || textLower.includes('pagar')) {
         const compraMsg = `🎉 *¡Excelente decisión de compra!*\n\n📦 *${nombreProd}*\n💰 *Precio:* Bs. ${precioProd}\n\n👇 Selecciona tu método de pago preferido para emitir el QR:`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
