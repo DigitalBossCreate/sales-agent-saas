@@ -10,6 +10,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
 
+// 🔗 QR Global por defecto si el producto no tiene uno propio asignado
+const QR_POR_DEFECTO = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr.jpg';
+
 async function guardarMensajeHistorial(telegramId, rol, mensaje) {
   try {
     await supabase.from('historial_chat').insert([{
@@ -49,9 +52,12 @@ export default async function handler(req, res) {
           const productos = await obtenerProductos();
           let listaMsg = `📦 *Catálogo Actual (${productos.length} productos)*:\n\n`;
           productos.forEach((p, index) => {
-            listaMsg += `${index + 1}. *${p.name || p.nombre}* - Bs. ${p.price || p.precio}\n   ID: \`${p.id}\`\n   _Borrar:_ \`/eliminar ${p.id}\`\n   _Actualizar:_ \`/actualizar ${p.id} | Nuevo Nombre | Precio | Prompt\`\n\n`;
+            listaMsg += `${index + 1}. *${p.nombre || 'Sin nombre'}* - Bs. ${p.precio || 0}\n`;
+            listaMsg += `   ID: \`${p.id}\`\n`;
+            listaMsg += `   _Borrar:_ \`/eliminar ${p.id}\`\n`;
+            listaMsg += `   _Actualizar:_ \`/actualizar ${p.id} | Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo\`\n\n`;
           });
-          listaMsg += `➕ *Para agregar un producto nuevo:*\n\`/nuevo Nombre | Precio | Prompt\`\n`;
+          listaMsg += `➕ *Para agregar un producto nuevo:*\n\`/nuevo Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo\`\n*(Nota: Las casillas vacías se omiten y el QR usará el predeterminado si no se indica)*`;
 
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
@@ -69,45 +75,75 @@ export default async function handler(req, res) {
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: `🗑️ Producto con ID \`${prodId}\` eliminado correctamente del catálogo.` })
+            body: JSON.stringify({ chat_id: chatId, text: `🗑️ Producto con ID \`${prodId}\` eliminado correctamente.` })
           });
           return res.status(200).json({ success: true });
         }
 
-        // Crear producto nuevo con formato: /nuevo Nombre | Precio | Prompt
+        // Crear producto nuevo con múltiples casillas multimedia:
+        // /nuevo Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo
         if (text.startsWith('/nuevo ')) {
           const partes = textOriginal.replace('/nuevo ', '').split('|');
           const nombreNuevo = partes[0] ? partes[0].trim() : 'Nuevo Producto';
-          const precioNuevo = partes[1] ? parseFloat(partes[1].trim()) : 50;
+          const precioNuevo = partes[1] && !isNaN(partes[1].trim()) ? parseFloat(partes[1].trim()) : 50;
           const promptNuevo = partes[2] ? partes[2].trim() : 'Acceso premium garantizado.';
+          const img1 = partes[3] ? partes[3].trim() : null;
+          const img2 = partes[4] ? partes[4].trim() : null;
+          const vid1 = partes[5] ? partes[5].trim() : null;
+          const vid2 = partes[6] ? partes[6].trim() : null;
+          const pdfUrl = partes[7] ? partes[7].trim() : null;
+          const qrPago = partes[8] ? partes[8].trim() : null;
+          const tipoEntregaNuevo = partes[9] ? partes[9].trim().toLowerCase() : 'manual';
 
-          await supabase.from('productos').insert([{
+          const nuevoObjeto = {
             nombre: nombreNuevo,
             precio: precioNuevo,
             prompt_ventas: promptNuevo,
-            tipo_entrega: 'manual'
-          }]);
+            tipo_entrega: tipoEntregaNuevo
+          };
+          if (img1) nuevoObjeto.imagen_url = img1;
+          if (img2) nuevoObjeto.imagen_url_2 = img2;
+          if (vid1) nuevoObjeto.video_url = vid1;
+          if (vid2) nuevoObjeto.video_url_2 = vid2;
+          if (pdfUrl) nuevoObjeto.pdf_url = pdfUrl;
+          if (qrPago) nuevoObjeto.qr_pago_url = qrPago;
+
+          await supabase.from('productos').insert([nuevoObjeto]);
 
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: `✅ *¡Producto creado con éxito!*\n\n📦 *${nombreNuevo}*\n💰 *Precio:* Bs. ${precioNuevo}\n📝 *Prompt:* ${promptNuevo}`, parse_mode: 'Markdown' })
+            body: JSON.stringify({ chat_id: chatId, text: `✅ *¡Producto creado con éxito!*\n\n📦 *${nombreNuevo}*\n💰 *Precio:* Bs. ${precioNuevo}\n🚀 *Tipo:* ${tipoEntregaNuevo}`, parse_mode: 'Markdown' })
           });
           return res.status(200).json({ success: true });
         }
 
-        // Actualizar producto existente con formato: /actualizar ID | Nombre | Precio | Prompt
+        // Actualizar producto existente
         if (text.startsWith('/actualizar ')) {
           const partes = textOriginal.replace('/actualizar ', '').split('|');
           const prodId = partes[0] ? partes[0].trim() : '';
           const nombreAct = partes[1] ? partes[1].trim() : '';
-          const precioAct = partes[2] ? parseFloat(partes[2].trim()) : null;
+          const precioAct = partes[2] && partes[2].trim() !== '' ? parseFloat(partes[2].trim()) : null;
           const promptAct = partes[3] ? partes[3].trim() : '';
+          const img1Act = partes[4] ? partes[4].trim() : '';
+          const img2Act = partes[5] ? partes[5].trim() : '';
+          const vid1Act = partes[6] ? partes[6].trim() : '';
+          const vid2Act = partes[7] ? partes[7].trim() : '';
+          const pdfAct = partes[8] ? partes[8].trim() : '';
+          const qrAct = partes[9] ? partes[9].trim() : '';
+          const tipoAct = partes[10] ? partes[10].trim().toLowerCase() : '';
 
           const datosActualizar = {};
           if (nombreAct) datosActualizar.nombre = nombreAct;
-          if (!isNaN(precioAct) && precioAct !== null) datosActualizar.precio = precioAct;
+          if (precioAct !== null && !isNaN(precioAct)) datosActualizar.precio = precioAct;
           if (promptAct) datosActualizar.prompt_ventas = promptAct;
+          if (img1Act) datosActualizar.imagen_url = img1Act;
+          if (img2Act) datosActualizar.imagen_url_2 = img2Act;
+          if (vid1Act) datosActualizar.video_url = vid1Act;
+          if (vid2Act) datosActualizar.video_url_2 = vid2Act;
+          if (pdfAct) datosActualizar.pdf_url = pdfAct;
+          if (qrAct) datosActualizar.qr_pago_url = qrAct;
+          if (tipoAct) datosActualizar.tipo_entrega = tipoAct;
 
           await supabase.from('productos').update(datosActualizar).eq('id', prodId);
 
@@ -176,7 +212,7 @@ export default async function handler(req, res) {
       // --------------------------------------------------------------------------------------------
 
       if (text === '/admin' || text === 'soy el admin') {
-        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n📋 *Comandos de gestión:*:\n• /catalogo_admin - Ver productos y sus IDs\n• /nuevo Nombre | Precio | Prompt - Crear\n• /actualizar ID | Nombre | Precio | Prompt - Modificar\n• /eliminar ID - Borrar`;
+        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n📋 *Comandos de gestión:*\n• /catalogo_admin - Ver productos e IDs\n• /nuevo Nombre | Precio | Prompt | Img1 | Img2 | Vid1 | Vid2 | PDF | QR | Tipo\n• /actualizar ID | ... - Modificar\n• /eliminar ID - Borrar`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -249,6 +285,16 @@ export default async function handler(req, res) {
             }
           })
         });
+
+        // Si existe un segundo video opcional, lo envía también
+        if (productoPrincipal.video_url_2) {
+          await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, video: productoPrincipal.video_url_2, caption: '🎥 *Video adicional de demostración*' })
+          });
+        }
+
         await guardarMensajeHistorial(userId, 'assistant', '[Envío de Video Demo]');
         return res.status(200).json({ success: true });
       }
@@ -290,22 +336,51 @@ export default async function handler(req, res) {
           `💡 *Tip:* Escribe *"ver video"* si deseas una demostración visual.\n\n` +
           `¿Listo para dar el salto? 👇`;
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            chat_id: chatId, 
-            text: ventasTexto, 
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: `🛒 ¡Lo quiero, Comprar Ahora!`, callback_data: `start_purchase_${productoPrincipal.id}` }],
-                [{ text: `🎥 Ver Demostración en Video`, callback_data: `send_demo_video_${productoPrincipal.id}` }],
-                [{ text: `❓ Preguntas Frecuentes (FAQs)`, callback_data: `faq_product_${productoPrincipal.id}` }]
-              ]
-            }
-          })
-        });
+        // Si tiene imagen principal configurada, la envía primero con la descripción
+        if (productoPrincipal.imagen_url) {
+          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              photo: productoPrincipal.imagen_url,
+              caption: ventasTexto,
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: `🛒 ¡Lo quiero, Comprar Ahora!`, callback_data: `start_purchase_${productoPrincipal.id}` }],
+                  [{ text: `🎥 Ver Demostración en Video`, callback_data: `send_demo_video_${productoPrincipal.id}` }]
+                ]
+              }
+            })
+          });
+          // Si tiene segunda imagen opcional, la envía enseguida
+          if (productoPrincipal.imagen_url_2) {
+            await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chat_id: chatId, photo: productoPrincipal.imagen_url_2 })
+            });
+          }
+        } else {
+          // Si no hay imagen, manda solo texto
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              chat_id: chatId, 
+              text: ventasTexto, 
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: `🛒 ¡Lo quiero, Comprar Ahora!`, callback_data: `start_purchase_${productoPrincipal.id}` }],
+                  [{ text: `🎥 Ver Demostración en Video`, callback_data: `send_demo_video_${productoPrincipal.id}` }]
+                ]
+              }
+            })
+          });
+        }
+
         await guardarMensajeHistorial(userId, 'assistant', ventasTexto);
         return res.status(200).json({ success: true });
       }
@@ -352,27 +427,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Procesando...' })
       });
 
-      if (data.startsWith('faq_product_')) {
-        const prodId = data.replace('faq_product_', '');
-        const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const faqsTexto = prodData?.faqs || '1️⃣ Entrega inmediata tras verificar tu pago.\n2️⃣ Soporte y estabilidad asegurada.';
-
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            chat_id: chatId, 
-            text: `📌 *Preguntas Frecuentes Oficiales:*\n\n${faqsTexto}\n\n¿Deseas adquirirlo ahora? 🚀`, 
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: `🛒 ¡Sí, Comprar Ahora!`, callback_data: `start_purchase_${prodId}` }]
-              ]
-            }
-          })
-        });
-      }
-      else if (data.startsWith('send_demo_video_')) {
+      if (data.startsWith('send_demo_video_')) {
         const prodId = data.replace('send_demo_video_', '');
         const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
         const videoUrl = prodData?.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
@@ -420,9 +475,10 @@ export default async function handler(req, res) {
         const prodId = parts[2];
 
         const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const prod = productoPrincipal || { id: prodId, nombre: 'Producto Digital', precio: 67, imagen_url: '', qr_binance_url: '' };
+        const prod = productoPrincipal || { id: prodId, nombre: 'Producto Digital', precio: 67 };
 
-        const qrUrl = method === 'takenos' ? prod.imagen_url : (prod.qr_binance_url || prod.imagen_url);
+        // 🧠 Lógica inteligente de QR: Usa el QR específico del producto si existe, de lo contrario usa el QR por defecto
+        const qrUrlToUse = prod.qr_pago_url || QR_POR_DEFECTO;
 
         try {
           await supabase.from('pedidos').insert([{
@@ -437,8 +493,8 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            photo: qrUrl,
-            caption: `📲 *Escanea el QR de ${method.toUpperCase()} para realizar tu pago.*\n\nUna vez realizado, haz clic en el botón de abajo para notificar al administrador:`,
+            photo: qrUrlToUse,
+            caption: `📲 *Escanea el QR para realizar tu pago.*\n\nUna vez realizado, haz clic en el botón de abajo para notificar al administrador:`,
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
@@ -506,7 +562,7 @@ export default async function handler(req, res) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               chat_id: targetChatId, 
-              text: `¡Pago aprobado con éxito! 🎉\n\nTu curso: *${nombreProd}*\n🔗 *Enlace de Acceso / Descarga:* ${entregableUrl}\n\n¡Gracias por tu compra! 🚀`, 
+              text: `¡Pago aprobado con éxito! 🎉\n\nTu archivo / curso: *${nombreProd}*\n🔗 *Enlace de Descarga:* ${entregableUrl}\n\n¡Gracias por tu compra! 🚀`, 
               parse_mode: 'Markdown' 
             })
           });
