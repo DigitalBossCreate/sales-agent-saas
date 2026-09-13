@@ -7,7 +7,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
 
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '';
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
 
 async function guardarMensajeHistorial(telegramId, rol, mensaje) {
@@ -35,9 +35,67 @@ export default async function handler(req, res) {
       const userName = update.message.from.first_name || 'Cliente';
       const userUsername = update.message.from.username || '';
       const text = (update.message.text || '').toLowerCase().trim();
+      const textOriginal = update.message.text || '';
+
+      const isAdmin = String(userId) === String(ADMIN_CHAT_ID);
 
       const clienteId = await gestionarCliente(userId, userName, userUsername);
       await guardarMensajeHistorial(userId, 'user', text);
+
+      // --- FUNCIONES DE ADMINISTRACIÓN ---
+      if (isAdmin) {
+        // Listar productos para gestionar
+        if (text === '/catalogo_admin' || text === 'catalogo') {
+          const productos = await obtenerProductos();
+          let listaMsg = `📦 *Catálogo Actual (${productos.length} productos)*:\n\n`;
+          productos.forEach((p, index) => {
+            listaMsg += `${index + 1}. *${p.name || p.nombre}* - Bs. ${p.price || p.precio}\n   ID: \`${p.id}\`\n   _Para eliminar escribe:_ \`/eliminar ${p.id}\`\n\n`;
+          });
+          listaMsg += `➕ *Para agregar un producto nuevo escribe:*\n\`/nuevo Nombre | Precio | Prompt\`\n`;
+
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: listaMsg, parse_mode: 'Markdown' })
+          });
+          return res.status(200).json({ success: true });
+        }
+
+        // Eliminar producto
+        if (text.startsWith('/eliminar ')) {
+          const prodId = textOriginal.replace('/eliminar ', '').trim();
+          await supabase.from('productos').delete().eq('id', prodId);
+
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: `🗑️ Producto con ID \`${prodId}\` eliminado correctamente del catálogo.` })
+          });
+          return res.status(200).json({ success: true });
+        }
+
+        // Crear producto rápido con formato: /nuevo Nombre | Precio | Prompt
+        if (text.startsWith('/nuevo ')) {
+          const partes = textOriginal.replace('/nuevo ', '').split('|');
+          const nombreNuevo = partes[0] ? partes[0].trim() : 'Nuevo Producto';
+          const precioNuevo = partes[1] ? parseFloat(partes[1].trim()) : 50;
+          const promptNuevo = partes[2] ? partes[2].trim() : 'Acceso premium garantizado.';
+
+          await supabase.from('productos').insert([{
+            nombre: nombreNuevo,
+            precio: precioNuevo,
+            prompt_ventas: promptNuevo,
+            tipo_entrega: 'manual'
+          }]);
+
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: `✅ *¡Producto creado con éxito!*\n\n📦 *${nombreNuevo}*\n💰 *Precio:* Bs. ${precioNuevo}\n📝 *Prompt:* ${promptNuevo}`, parse_mode: 'Markdown' })
+          });
+          return res.status(200).json({ success: true });
+        }
+      }
 
       // --- COMANDO DE ADMIN PARA LIBERAR AL CLIENTE ---
       if (text.startsWith('/liberar ')) {
@@ -95,7 +153,7 @@ export default async function handler(req, res) {
       // --------------------------------------------------------------------------------------------
 
       if (text === '/admin' || text === 'soy el admin') {
-        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\``;
+        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n📋 *Comandos de gestión disponibles:*\n• /catalogo_admin - Ver y administrar productos\n• /nuevo Nombre | Precio | Prompt - Crear producto\n• /eliminar [ID] - Borrar un producto`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -172,7 +230,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Manejo dinámico de objeciones leyendo el campo de Supabase
+      // Manejo dinámico de objeciones
       if (text.includes('correo') || text.includes('personal') || text.includes('activa') || text.includes('cae') || text.includes('garantia') || text.includes('seguro') || (hablabaDeProducto && (text.includes('si') || text.includes('como') || text.includes('donde')))) {
         const respuestaObjecionDinamica = `¡Exacto, *${userName}*! 🤝\n\n` +
           `${objecionesProd}\n\n` +
@@ -335,7 +393,7 @@ export default async function handler(req, res) {
       }
       else if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
         const parts = data.split('_');
-        const method = parts[1]; // takenos o binance
+        const method = parts[1];
         const prodId = parts[2];
 
         const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
