@@ -49,9 +49,9 @@ export default async function handler(req, res) {
           const productos = await obtenerProductos();
           let listaMsg = `📦 *Catálogo Actual (${productos.length} productos)*:\n\n`;
           productos.forEach((p, index) => {
-            listaMsg += `${index + 1}. *${p.name || p.nombre}* - Bs. ${p.price || p.precio}\n   ID: \`${p.id}\`\n   _Para eliminar escribe:_ \`/eliminar ${p.id}\`\n\n`;
+            listaMsg += `${index + 1}. *${p.name || p.nombre}* - Bs. ${p.price || p.precio}\n   ID: \`${p.id}\`\n   _Borrar:_ \`/eliminar ${p.id}\`\n   _Actualizar:_ \`/actualizar ${p.id} | Nuevo Nombre | Precio | Prompt\`\n\n`;
           });
-          listaMsg += `➕ *Para agregar un producto nuevo escribe:*\n\`/nuevo Nombre | Precio | Prompt\`\n`;
+          listaMsg += `➕ *Para agregar un producto nuevo:*\n\`/nuevo Nombre | Precio | Prompt\`\n`;
 
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
@@ -74,7 +74,7 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true });
         }
 
-        // Crear producto rápido con formato: /nuevo Nombre | Precio | Prompt
+        // Crear producto nuevo con formato: /nuevo Nombre | Precio | Prompt
         if (text.startsWith('/nuevo ')) {
           const partes = textOriginal.replace('/nuevo ', '').split('|');
           const nombreNuevo = partes[0] ? partes[0].trim() : 'Nuevo Producto';
@@ -92,6 +92,29 @@ export default async function handler(req, res) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chat_id: chatId, text: `✅ *¡Producto creado con éxito!*\n\n📦 *${nombreNuevo}*\n💰 *Precio:* Bs. ${precioNuevo}\n📝 *Prompt:* ${promptNuevo}`, parse_mode: 'Markdown' })
+          });
+          return res.status(200).json({ success: true });
+        }
+
+        // Actualizar producto existente con formato: /actualizar ID | Nombre | Precio | Prompt
+        if (text.startsWith('/actualizar ')) {
+          const partes = textOriginal.replace('/actualizar ', '').split('|');
+          const prodId = partes[0] ? partes[0].trim() : '';
+          const nombreAct = partes[1] ? partes[1].trim() : '';
+          const precioAct = partes[2] ? parseFloat(partes[2].trim()) : null;
+          const promptAct = partes[3] ? partes[3].trim() : '';
+
+          const datosActualizar = {};
+          if (nombreAct) datosActualizar.nombre = nombreAct;
+          if (!isNaN(precioAct) && precioAct !== null) datosActualizar.precio = precioAct;
+          if (promptAct) datosActualizar.prompt_ventas = promptAct;
+
+          await supabase.from('productos').update(datosActualizar).eq('id', prodId);
+
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: `🔄 *¡Producto actualizado con éxito!*\nID: \`${prodId}\``, parse_mode: 'Markdown' })
           });
           return res.status(200).json({ success: true });
         }
@@ -153,7 +176,7 @@ export default async function handler(req, res) {
       // --------------------------------------------------------------------------------------------
 
       if (text === '/admin' || text === 'soy el admin') {
-        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n📋 *Comandos de gestión disponibles:*\n• /catalogo_admin - Ver y administrar productos\n• /nuevo Nombre | Precio | Prompt - Crear producto\n• /eliminar [ID] - Borrar un producto`;
+        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n📋 *Comandos de gestión:*:\n• /catalogo_admin - Ver productos y sus IDs\n• /nuevo Nombre | Precio | Prompt - Crear\n• /actualizar ID | Nombre | Precio | Prompt - Modificar\n• /eliminar ID - Borrar`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
