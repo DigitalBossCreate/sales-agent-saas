@@ -24,7 +24,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V5.4 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V5.5 is running' });
   }
 
   try {
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       else if (data.startsWith('start_purchase_')) {
         const prodId = data.replace('start_purchase_', '');
         const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 67 };
+        const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 50 };
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -87,22 +87,23 @@ export default async function handler(req, res) {
 
         const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
         
+        // 🛡️ RESPALDO BLINDADO: Si el producto tiene QR propio lo usa, si no, usa el QR por defecto de manera segura
         let qrUrl = QR_POR_DEFECTO;
         let nombreProd = 'Producto Digital';
-        let precioProd = 67;
+        let precioProd = 50;
 
         if (prod) {
           nombreProd = prod.nombre || nombreProd;
           precioProd = prod.precio || precioProd;
 
           if (method === 'takenos') {
-            if (prod.qr_pago_url && prod.qr_pago_url.trim() !== '') {
+            if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim() !== '') {
               qrUrl = prod.qr_pago_url.trim();
-            } else if (prod.imagen_url && prod.imagen_url.trim() !== '') {
+            } else if (prod.imagen_url && typeof prod.imagen_url === 'string' && prod.imagen_url.trim() !== '') {
               qrUrl = prod.imagen_url.trim();
             }
           } else if (method === 'binance') {
-            if (prod.qr_binance_url && prod.qr_binance_url.trim() !== '') {
+            if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim() !== '') {
               qrUrl = prod.qr_binance_url.trim();
             }
           }
@@ -345,7 +346,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 BÚSQUEDA MULTIPRODUCTO MEJORADA (Busca coincidencias exactas o parciales en todo el nombre del producto)
       const productos = await obtenerProductos();
       let productoSeleccionado = productos.find(p => text.includes(p.nombre.toLowerCase()) || p.nombre.toLowerCase().split(' ').some(palabra => palabra.length > 3 && text.includes(palabra))) || productos[0];
 
