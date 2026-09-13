@@ -10,7 +10,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
 
-// 🔗 QR Global por defecto asegurado y verificado
+// 🔗 QR Global por defecto original
 const QR_POR_DEFECTO = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr.jpg';
 
 async function guardarMensajeHistorial(telegramId, rol, mensaje) {
@@ -154,7 +154,7 @@ export default async function handler(req, res) {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: targetId, text: `🎁 *¡Activación completada con éxito!*\nYa puedes disfrutar de tu cuenta. Escribe *"catalogo"* si deseas ver más herramientas. 🔥`, parse_mode: 'Markdown' })
+          body: JSON.stringify({ chat_id: targetId, text: `🎁 *¡Activación completada con éxito!*\nYa puedes disfrutar de tu cuenta. Escribe *"catalogo"*. 🔥`, parse_mode: 'Markdown' })
         });
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -235,19 +235,15 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 BÚSQUEDA INTELIGENTE Y TOLERANTE A ERRORES DE ESCRITURA (Fuzzy / Coincidencia de letras)
+      // 🧠 BÚSQUEDA INTELIGENTE DE PRODUCTO POR TEXTO
       const productos = await obtenerProductos();
       let productoSeleccionado = null;
 
-      // 1. Intento por coincidencia de palabras clave o mala escritura
       for (const p of productos) {
         const nombreLower = p.nombre.toLowerCase();
-        // Divide el nombre en palabras (ej: "gemini advanced" -> ["gemini", "advanced"])
         const palabras = nombreLower.split(' ');
-        
-        // Revisa si alguna palabra clave del producto está contenida en lo que escribió el usuario (incluso mal escrito si coincide parcialmente)
         const coincide = palabras.some(palabra => {
-          if (palabra.length > 3 && text.includes(palabra.substring(0, 4))) return true; // Coincidencia parcial de 4 letras
+          if (palabra.length > 3 && text.includes(palabra.substring(0, 4))) return true;
           return text.includes(palabra);
         });
 
@@ -263,43 +259,23 @@ export default async function handler(req, res) {
           `✨ *Detalles:*\n${p.prompt_ventas || 'Acceso completo garantizado.'}\n\n` +
           `💰 *Inversión:* Bs. ${p.precio}\n\n👇 ¿Qué deseas hacer?`;
 
-        // Si tiene imagen principal configurada, la envía con su respectivo botón de compra
-        if (p.imagen_url) {
-          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              photo: p.imagen_url,
-              caption: ventasTexto,
-              parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: `🛒 ¡Comprar ${p.nombre} (Bs. ${p.precio})!`, callback_data: `start_purchase_${p.id}` }]
-                ]
-              }
-            })
-          });
-        } else {
-          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              chat_id: chatId, 
-              text: ventasTexto, 
-              parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: `🛒 ¡Comprar ${p.nombre} (Bs. ${p.precio})!`, callback_data: `start_purchase_${p.id}` }]
-                ]
-              }
-            })
-          });
-        }
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: ventasTexto, 
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `🛒 ¡Comprar ${p.nombre} (Bs. ${p.precio})!`, callback_data: `start_purchase_${p.id}` }]
+              ]
+            }
+          })
+        });
         return res.status(200).json({ success: true });
       }
 
-      // Si no reconoce nada, muestra el catálogo general para guiar al usuario
       const defaultMsg = 'No logré identificar exactamente el producto. Escribe *"catalogo"* para ver la lista completa de opciones disponibles. 😊';
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
@@ -325,38 +301,20 @@ export default async function handler(req, res) {
 
         if (p) {
           const textoProd = `📦 *${p.nombre}*\n\n📝 ${p.prompt_ventas}\n\n💰 *Precio:* Bs. ${p.precio}`;
-          if (p.imagen_url) {
-            await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                chat_id: chatId,
-                photo: p.imagen_url,
-                caption: textoProd,
-                parse_mode: 'Markdown',
-                reply_markup: {
-                  inline_keyboard: [
-                    [{ text: `🛒 ¡Comprar Ahora (Bs. ${p.precio})!`, callback_data: `start_purchase_${p.id}` }]
-                  ]
-                }
-              })
-            });
-          } else {
-            await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                chat_id: chatId,
-                text: textoProd,
-                parse_mode: 'Markdown',
-                reply_markup: {
-                  inline_keyboard: [
-                    [{ text: `🛒 ¡Comprar Ahora (Bs. ${p.precio})!`, callback_data: `start_purchase_${p.id}` }]
-                  ]
-                }
-              })
-            });
-          }
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: textoProd,
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: `🛒 ¡Comprar Ahora (Bs. ${p.precio})!`, callback_data: `start_purchase_${p.id}` }]
+                ]
+              }
+            })
+          });
         }
       }
       else if (data.startsWith('start_purchase_')) {
@@ -388,8 +346,8 @@ export default async function handler(req, res) {
         const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
         const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 50 };
 
-        // 🧠 Lógica infalible de QR: Si tiene QR propio lo usa, sino usa el QR por defecto de manera segura
-        const qrUrlToUse = (producto.qr_pago_url && producto.qr_pago_url.startsWith('http')) ? producto.qr_pago_url : QR_POR_DEFECTO;
+        // 🔗 Lógica original y directa del QR (Si el producto tiene qr_pago_url lo usa, si no, usa el QR por defecto)
+        const qrUrlToUse = producto.qr_pago_url ? producto.qr_pago_url : QR_POR_DEFECTO;
 
         try {
           await supabase.from('pedidos').insert([{
