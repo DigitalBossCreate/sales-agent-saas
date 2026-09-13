@@ -10,6 +10,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
 
+// 🔗 QR Global por defecto infalible
 const QR_POR_DEFECTO = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr.jpg';
 
 async function guardarMensajeHistorial(telegramId, rol, mensaje) {
@@ -24,7 +25,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V5.5 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V5.6 is running' });
   }
 
   try {
@@ -87,8 +88,7 @@ export default async function handler(req, res) {
 
         const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
         
-        // 🛡️ RESPALDO BLINDADO: Si el producto tiene QR propio lo usa, si no, usa el QR por defecto de manera segura
-        let qrUrl = QR_POR_DEFECTO;
+        let qrUrl = QR_POR_DEFECTO; // Asumimos por defecto el global de entrada
         let nombreProd = 'Producto Digital';
         let precioProd = 50;
 
@@ -97,12 +97,14 @@ export default async function handler(req, res) {
           precioProd = prod.precio || precioProd;
 
           if (method === 'takenos') {
+            // Revisa si tiene qr_pago_url o imagen_url. Si no tiene ninguno, mantiene el QR_POR_DEFECTO.
             if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim() !== '') {
               qrUrl = prod.qr_pago_url.trim();
             } else if (prod.imagen_url && typeof prod.imagen_url === 'string' && prod.imagen_url.trim() !== '') {
               qrUrl = prod.imagen_url.trim();
             }
           } else if (method === 'binance') {
+            // Revisa si tiene qr_binance_url. Si no tiene, mantiene el QR_POR_DEFECTO.
             if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim() !== '') {
               qrUrl = prod.qr_binance_url.trim();
             }
