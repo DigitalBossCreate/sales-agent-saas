@@ -25,7 +25,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V5.8 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V5.9 is running' });
   }
 
   try {
@@ -98,7 +98,7 @@ export default async function handler(req, res) {
         const method = parts[1]; // 'takenos' o 'binance'
         const prodId = parts[2].trim();
 
-        let qrUrl = QR_POR_DEFECTO; 
+        let qrUrl = ''; 
         let nombreProd = 'Producto Digital';
         let precioProd = 50;
 
@@ -109,21 +109,21 @@ export default async function handler(req, res) {
             precioProd = prod.precio || precioProd;
 
             if (method === 'takenos') {
-              if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim() !== '') {
+              if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim().startsWith('http')) {
                 qrUrl = prod.qr_pago_url.trim();
-              } else if (prod.imagen_url && typeof prod.imagen_url === 'string' && prod.imagen_url.trim() !== '') {
+              } else if (prod.imagen_url && typeof prod.imagen_url === 'string' && prod.imagen_url.trim().startsWith('http')) {
                 qrUrl = prod.imagen_url.trim();
               }
             } else if (method === 'binance') {
-              if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim() !== '') {
+              if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim().startsWith('http')) {
                 qrUrl = prod.qr_binance_url.trim();
               }
             }
           }
         } catch (e) {}
 
-        // Forzar QR por defecto si no hay ninguno asignado
-        if (!qrUrl || qrUrl === '' || qrUrl === 'null') {
+        // 🛡️ REGLA ABSOLUTA: Si no tiene una URL web válida, asigna forzosamente el QR por defecto
+        if (!qrUrl || !qrUrl.startsWith('http')) {
           qrUrl = QR_POR_DEFECTO;
         }
 
