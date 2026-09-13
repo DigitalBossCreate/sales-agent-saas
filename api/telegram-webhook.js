@@ -25,7 +25,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V6.0 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.1 is running' });
   }
 
   try {
@@ -122,7 +122,7 @@ export default async function handler(req, res) {
           }
         } catch (e) {}
 
-        // 🛡️ REGLA DE ORO: Si no hay QR propio cargado, usa obligatoriamente el QR por defecto
+        // 🛡️ REGLA ABSOLUTA: Si no hay QR propio cargado, usa obligatoriamente el QR por defecto
         if (!qrUrl || !qrUrl.startsWith('http')) {
           qrUrl = QR_POR_DEFECTO;
         }
@@ -364,27 +364,32 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 BÚSQUEDA ROBUSTA EXACTA Y DINÁMICA DE PRODUCTOS
+      // 🧠 BÚSQUEDA CORREGIDA Y ESTRICTA: Busca coincidencia exacta o por palabra clave real sin agarrar por defecto a Gemini
       const productos = await obtenerProductos();
-      let productoSeleccionado = productos[0]; // Por defecto Gemini o el primero
+      let productoSeleccionado = null;
 
       for (const p of productos) {
-        const nombreP = p.nombre.toLowerCase();
-        // Si el texto del usuario contiene el nombre completo del producto o palabras clave relevantes
+        const nombreP = (p.nombre || '').toLowerCase();
+        // Si el texto escrito contiene el nombre del producto o al menos palabras clave largas que coincidan
         if (text.includes(nombreP) || nombreP.split(' ').some(w => w.length > 3 && text.includes(w))) {
           productoSeleccionado = p;
           break;
         }
       }
 
-      if ((text === 'hola' || text === 'start' || text === '/start' || text === 'catalogo')) {
-        const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido al catálogo. ¿Qué herramienta o curso deseas consultar hoy? 🚀`;
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: saludoMsg, parse_mode: 'Markdown' })
-        });
-        return res.status(200).json({ success: true });
+      // Si no encontró ninguno por texto específico pero pidió ver el catálogo o saludar
+      if (!productoSeleccionado) {
+        if (text === 'hola' || text === 'start' || text === '/start' || text === 'catalogo') {
+          const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido al catálogo. ¿Qué herramienta o curso deseas consultar hoy? 🚀`;
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: saludoMsg, parse_mode: 'Markdown' })
+          });
+          return res.status(200).json({ success: true });
+        }
+        // Fallback seguro al primer producto solo si el usuario escribió otra cosa general
+        productoSeleccionado = productos[0];
       }
 
       if (text.includes('video') || text.includes('ver')) {
