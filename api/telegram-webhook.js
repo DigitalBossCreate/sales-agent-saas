@@ -25,7 +25,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V5.7 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V5.8 is running' });
   }
 
   try {
@@ -46,8 +46,12 @@ export default async function handler(req, res) {
 
       if (data.startsWith('send_demo_video_')) {
         const prodId = data.replace('send_demo_video_', '').trim();
-        const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const videoUrl = prodData?.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
+        let videoUrl = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
+        
+        try {
+          const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          if (prodData && prodData.video_url) videoUrl = prodData.video_url;
+        } catch (e) {}
         
         await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
           method: 'POST',
@@ -62,20 +66,28 @@ export default async function handler(req, res) {
       }
       else if (data.startsWith('start_purchase_')) {
         const prodId = data.replace('start_purchase_', '').trim();
-        const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 50 };
+        let nombreP = 'Producto Digital';
+        let precioP = 50;
+
+        try {
+          const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          if (prod) {
+            nombreP = prod.nombre || nombreP;
+            precioP = prod.precio || precioP;
+          }
+        } catch (e) {}
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `🎉 *${producto.nombre}*\n💰 *Precio:* Bs. ${producto.precio}\n\nSelecciona tu método de pago:`, 
+            text: `🎉 *${nombreP}*\n💰 *Precio:* Bs. ${precioP}\n\nSelecciona tu método de pago:`, 
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${producto.precio})`, callback_data: `pay_takenos_${producto.id}` }],
-                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${producto.id}` }]
+                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${precioP})`, callback_data: `pay_takenos_${prodId}` }],
+                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${prodId}` }]
               ]
             }
           })
@@ -86,28 +98,31 @@ export default async function handler(req, res) {
         const method = parts[1]; // 'takenos' o 'binance'
         const prodId = parts[2].trim();
 
-        // Búsqueda robusta del producto asegurando el ID exacto
-        const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        
         let qrUrl = QR_POR_DEFECTO; 
-        let nombreProd = prod?.nombre || 'Producto Digital';
-        let precioProd = prod?.precio || 50;
+        let nombreProd = 'Producto Digital';
+        let precioProd = 50;
 
-        if (prod) {
-          if (method === 'takenos') {
-            if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim() !== '') {
-              qrUrl = prod.qr_pago_url.trim();
-            } else if (prod.imagen_url && typeof prod.imagen_url === 'string' && prod.imagen_url.trim() !== '') {
-              qrUrl = prod.imagen_url.trim();
-            }
-          } else if (method === 'binance') {
-            if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim() !== '') {
-              qrUrl = prod.qr_binance_url.trim();
+        try {
+          const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          if (prod) {
+            nombreProd = prod.nombre || nombreProd;
+            precioProd = prod.precio || precioProd;
+
+            if (method === 'takenos') {
+              if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim() !== '') {
+                qrUrl = prod.qr_pago_url.trim();
+              } else if (prod.imagen_url && typeof prod.imagen_url === 'string' && prod.imagen_url.trim() !== '') {
+                qrUrl = prod.imagen_url.trim();
+              }
+            } else if (method === 'binance') {
+              if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim() !== '') {
+                qrUrl = prod.qr_binance_url.trim();
+              }
             }
           }
-        }
+        } catch (e) {}
 
-        // Si después de todo la URL del QR sigue vacía o nula, forzamos el por defecto de manera absoluta
+        // Forzar QR por defecto si no hay ninguno asignado
         if (!qrUrl || qrUrl === '' || qrUrl === 'null') {
           qrUrl = QR_POR_DEFECTO;
         }
