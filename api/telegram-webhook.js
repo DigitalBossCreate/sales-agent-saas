@@ -1,4 +1,4 @@
-import { obtenerProductos, gestionarCliente } from '../lib/bot-core.js';
+import { gestionarCliente } from '../lib/bot-core.js';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://nvzovzegagabdhdzqpgq.supabase.co';
@@ -13,6 +13,18 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8567773547:AAEE5QHxxSM
 // 🔗 QR Global por defecto infalible
 const QR_POR_DEFECTO = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr.jpg';
 
+// Función directa para obtener productos de Supabase sin depender de librerías externas restrictivas
+async function obtenerProductosDirecto() {
+  try {
+    const { data, error } = await supabase.from('productos').select('*');
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error('Error obteniendo productos:', e.message);
+    return [];
+  }
+}
+
 async function guardarMensajeHistorial(telegramId, rol, mensaje) {
   try {
     await supabase.from('historial_chat').insert([{
@@ -25,7 +37,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V6.1 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.2 is running' });
   }
 
   try {
@@ -227,7 +239,7 @@ export default async function handler(req, res) {
 
       if (isAdmin) {
         if (text === '/catalogo_admin' || text === 'catalogo') {
-          const productos = await obtenerProductos();
+          const productos = await obtenerProductosDirecto();
           let listaMsg = `📦 *Catálogo Actual (${productos.length} productos)*:\n\n`;
           productos.forEach((p, index) => {
             listaMsg += `${index + 1}. *${p.nombre || 'Sin nombre'}* - Bs. ${p.precio || 0}\n`;
@@ -364,20 +376,19 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 BÚSQUEDA CORREGIDA Y ESTRICTA: Busca coincidencia exacta o por palabra clave real sin agarrar por defecto a Gemini
-      const productos = await obtenerProductos();
+      // 🧠 BÚSQUEDA DIRECTA Y REAL EN SUPABASE (Sin filtros externos obsoletos)
+      const productos = await obtenerProductosDirecto();
       let productoSeleccionado = null;
 
       for (const p of productos) {
         const nombreP = (p.nombre || '').toLowerCase();
-        // Si el texto escrito contiene el nombre del producto o al menos palabras clave largas que coincidan
-        if (text.includes(nombreP) || nombreP.split(' ').some(w => w.length > 3 && text.includes(w))) {
+        // Coincidencia exacta o si contiene parte significativa del nombre del producto
+        if (text === nombreP || text.includes(nombreP) || nombreP.split(' ').some(w => w.length > 3 && text.includes(w))) {
           productoSeleccionado = p;
           break;
         }
       }
 
-      // Si no encontró ninguno por texto específico pero pidió ver el catálogo o saludar
       if (!productoSeleccionado) {
         if (text === 'hola' || text === 'start' || text === '/start' || text === 'catalogo') {
           const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido al catálogo. ¿Qué herramienta o curso deseas consultar hoy? 🚀`;
@@ -388,8 +399,7 @@ export default async function handler(req, res) {
           });
           return res.status(200).json({ success: true });
         }
-        // Fallback seguro al primer producto solo si el usuario escribió otra cosa general
-        productoSeleccionado = productos[0];
+        productoSeleccionado = productos[0] || { id: 'default', nombre: 'Producto Digital', precio: 50 };
       }
 
       if (text.includes('video') || text.includes('ver')) {
