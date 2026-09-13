@@ -25,7 +25,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V5.9 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.0 is running' });
   }
 
   try {
@@ -122,7 +122,7 @@ export default async function handler(req, res) {
           }
         } catch (e) {}
 
-        // 🛡️ REGLA ABSOLUTA: Si no tiene una URL web válida, asigna forzosamente el QR por defecto
+        // 🛡️ REGLA DE ORO: Si no hay QR propio cargado, usa obligatoriamente el QR por defecto
         if (!qrUrl || !qrUrl.startsWith('http')) {
           qrUrl = QR_POR_DEFECTO;
         }
@@ -364,8 +364,18 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
+      // 🧠 BÚSQUEDA ROBUSTA EXACTA Y DINÁMICA DE PRODUCTOS
       const productos = await obtenerProductos();
-      let productoSeleccionado = productos.find(p => text.includes(p.nombre.toLowerCase()) || p.nombre.toLowerCase().split(' ').some(palabra => palabra.length > 3 && text.includes(palabra))) || productos[0];
+      let productoSeleccionado = productos[0]; // Por defecto Gemini o el primero
+
+      for (const p of productos) {
+        const nombreP = p.nombre.toLowerCase();
+        // Si el texto del usuario contiene el nombre completo del producto o palabras clave relevantes
+        if (text.includes(nombreP) || nombreP.split(' ').some(w => w.length > 3 && text.includes(w))) {
+          productoSeleccionado = p;
+          break;
+        }
+      }
 
       if ((text === 'hola' || text === 'start' || text === '/start' || text === 'catalogo')) {
         const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido al catálogo. ¿Qué herramienta o curso deseas consultar hoy? 🚀`;
