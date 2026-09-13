@@ -55,9 +55,9 @@ export default async function handler(req, res) {
             listaMsg += `${index + 1}. *${p.nombre || 'Sin nombre'}* - Bs. ${p.precio || 0}\n`;
             listaMsg += `   ID: \`${p.id}\`\n`;
             listaMsg += `   _Borrar:_ \`/eliminar ${p.id}\`\n`;
-            listaMsg += `   _Actualizar:_ \`/actualizar ${p.id} | Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo\`\n\n`;
+            listaMsg += `   _Actualizar:_ \`/actualizar ${p.id} | Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo | URL_Drive\`\n\n`;
           });
-          listaMsg += `➕ *Para agregar un producto nuevo:*\n\`/nuevo Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo\`\n*(Nota: Las casillas vacías se omiten y el QR usará el predeterminado si no se indica)*`;
+          listaMsg += `➕ *Para agregar un producto nuevo:*\n\`/nuevo Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo | URL_Drive\`\n*(Nota: Las casillas vacías se omiten y el QR usará el predeterminado si no se indica)*`;
 
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
@@ -80,8 +80,8 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true });
         }
 
-        // Crear producto nuevo con múltiples casillas multimedia:
-        // /nuevo Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo
+        // Crear producto nuevo con URL de Drive / entrega final:
+        // /nuevo Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo | URL_Drive
         if (text.startsWith('/nuevo ')) {
           const partes = textOriginal.replace('/nuevo ', '').split('|');
           const nombreNuevo = partes[0] ? partes[0].trim() : 'Nuevo Producto';
@@ -94,6 +94,7 @@ export default async function handler(req, res) {
           const pdfUrl = partes[7] ? partes[7].trim() : null;
           const qrPago = partes[8] ? partes[8].trim() : null;
           const tipoEntregaNuevo = partes[9] ? partes[9].trim().toLowerCase() : 'manual';
+          const urlDriveNuevo = partes[10] ? partes[10].trim() : null;
 
           const nuevoObjeto = {
             nombre: nombreNuevo,
@@ -107,6 +108,7 @@ export default async function handler(req, res) {
           if (vid2) nuevoObjeto.video_url_2 = vid2;
           if (pdfUrl) nuevoObjeto.pdf_url = pdfUrl;
           if (qrPago) nuevoObjeto.qr_pago_url = qrPago;
+          if (urlDriveNuevo) nuevoObjeto.url_drive = urlDriveNuevo;
 
           await supabase.from('productos').insert([nuevoObjeto]);
 
@@ -132,6 +134,7 @@ export default async function handler(req, res) {
           const pdfAct = partes[8] ? partes[8].trim() : '';
           const qrAct = partes[9] ? partes[9].trim() : '';
           const tipoAct = partes[10] ? partes[10].trim().toLowerCase() : '';
+          const urlDriveAct = partes[11] ? partes[11].trim() : '';
 
           const datosActualizar = {};
           if (nombreAct) datosActualizar.nombre = nombreAct;
@@ -144,6 +147,7 @@ export default async function handler(req, res) {
           if (pdfAct) datosActualizar.pdf_url = pdfAct;
           if (qrAct) datosActualizar.qr_pago_url = qrAct;
           if (tipoAct) datosActualizar.tipo_entrega = tipoAct;
+          if (urlDriveAct) datosActualizar.url_drive = urlDriveAct;
 
           await supabase.from('productos').update(datosActualizar).eq('id', prodId);
 
@@ -212,7 +216,7 @@ export default async function handler(req, res) {
       // --------------------------------------------------------------------------------------------
 
       if (text === '/admin' || text === 'soy el admin') {
-        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n📋 *Comandos de gestión:*\n• /catalogo_admin - Ver productos e IDs\n• /nuevo Nombre | Precio | Prompt | Img1 | Img2 | Vid1 | Vid2 | PDF | QR | Tipo\n• /actualizar ID | ... - Modificar\n• /eliminar ID - Borrar`;
+        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\`\n\n📋 *Comandos de gestión:*\n• /catalogo_admin - Ver productos e IDs\n• /nuevo Nombre | Precio | Prompt | Img1 | Img2 | Vid1 | Vid2 | PDF | QR | Tipo | URL_Drive - Crear\n• /actualizar ID | ... - Modificar\n• /eliminar ID - Borrar`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -286,7 +290,6 @@ export default async function handler(req, res) {
           })
         });
 
-        // Si existe un segundo video opcional, lo envía también
         if (productoPrincipal.video_url_2) {
           await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
             method: 'POST',
@@ -336,7 +339,6 @@ export default async function handler(req, res) {
           `💡 *Tip:* Escribe *"ver video"* si deseas una demostración visual.\n\n` +
           `¿Listo para dar el salto? 👇`;
 
-        // Si tiene imagen principal configurada, la envía primero con la descripción
         if (productoPrincipal.imagen_url) {
           await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
             method: 'POST',
@@ -354,7 +356,6 @@ export default async function handler(req, res) {
               }
             })
           });
-          // Si tiene segunda imagen opcional, la envía enseguida
           if (productoPrincipal.imagen_url_2) {
             await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
               method: 'POST',
@@ -363,7 +364,6 @@ export default async function handler(req, res) {
             });
           }
         } else {
-          // Si no hay imagen, manda solo texto
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -477,7 +477,6 @@ export default async function handler(req, res) {
         const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
         const prod = productoPrincipal || { id: prodId, nombre: 'Producto Digital', precio: 67 };
 
-        // 🧠 Lógica inteligente de QR: Usa el QR específico del producto si existe, de lo contrario usa el QR por defecto
         const qrUrlToUse = prod.qr_pago_url || QR_POR_DEFECTO;
 
         try {
@@ -550,7 +549,9 @@ export default async function handler(req, res) {
           if (prodData) {
             nombreProd = prodData.nombre;
             tipoEntrega = prodData.tipo_entrega || 'manual';
-            if (prodData.pdf_url) entregableUrl = prodData.pdf_url;
+            // Prioriza la URL de Drive específica del producto, si no usa el PDF o el enlace genérico
+            if (prodData.url_drive) entregableUrl = prodData.url_drive;
+            else if (prodData.pdf_url) entregableUrl = prodData.pdf_url;
             else if (prodData.video_url) entregableUrl = prodData.video_url;
           }
           await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('estado', 'ESPERANDO_PAGO');
@@ -562,7 +563,7 @@ export default async function handler(req, res) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               chat_id: targetChatId, 
-              text: `¡Pago aprobado con éxito! 🎉\n\nTu archivo / curso: *${nombreProd}*\n🔗 *Enlace de Descarga:* ${entregableUrl}\n\n¡Gracias por tu compra! 🚀`, 
+              text: `¡Pago aprobado con éxito! 🎉\n\nTu producto: *${nombreProd}*\n🔗 *Enlace de Acceso / Drive:* ${entregableUrl}\n\n¡Gracias por tu compra! 🚀`, 
               parse_mode: 'Markdown' 
             })
           });
