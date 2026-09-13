@@ -25,7 +25,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V5.6 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V5.7 is running' });
   }
 
   try {
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
       });
 
       if (data.startsWith('send_demo_video_')) {
-        const prodId = data.replace('send_demo_video_', '');
+        const prodId = data.replace('send_demo_video_', '').trim();
         const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
         const videoUrl = prodData?.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
         
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
         });
       }
       else if (data.startsWith('start_purchase_')) {
-        const prodId = data.replace('start_purchase_', '');
+        const prodId = data.replace('start_purchase_', '').trim();
         const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
         const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 50 };
 
@@ -84,31 +84,32 @@ export default async function handler(req, res) {
       else if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
         const parts = data.split('_');
         const method = parts[1]; // 'takenos' o 'binance'
-        const prodId = parts[2];
+        const prodId = parts[2].trim();
 
+        // Búsqueda robusta del producto asegurando el ID exacto
         const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
         
-        let qrUrl = QR_POR_DEFECTO; // Asumimos por defecto el global de entrada
-        let nombreProd = 'Producto Digital';
-        let precioProd = 50;
+        let qrUrl = QR_POR_DEFECTO; 
+        let nombreProd = prod?.nombre || 'Producto Digital';
+        let precioProd = prod?.precio || 50;
 
         if (prod) {
-          nombreProd = prod.nombre || nombreProd;
-          precioProd = prod.precio || precioProd;
-
           if (method === 'takenos') {
-            // Revisa si tiene qr_pago_url o imagen_url. Si no tiene ninguno, mantiene el QR_POR_DEFECTO.
             if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim() !== '') {
               qrUrl = prod.qr_pago_url.trim();
             } else if (prod.imagen_url && typeof prod.imagen_url === 'string' && prod.imagen_url.trim() !== '') {
               qrUrl = prod.imagen_url.trim();
             }
           } else if (method === 'binance') {
-            // Revisa si tiene qr_binance_url. Si no tiene, mantiene el QR_POR_DEFECTO.
             if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim() !== '') {
               qrUrl = prod.qr_binance_url.trim();
             }
           }
+        }
+
+        // Si después de todo la URL del QR sigue vacía o nula, forzamos el por defecto de manera absoluta
+        if (!qrUrl || qrUrl === '' || qrUrl === 'null') {
+          qrUrl = QR_POR_DEFECTO;
         }
 
         try {
@@ -132,7 +133,7 @@ export default async function handler(req, res) {
       else if (data.startsWith('notify_admin_')) {
         const parts = data.split('_');
         const targetChatId = parts[2];
-        const prodId = parts[3];
+        const prodId = parts[3].trim();
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -160,7 +161,7 @@ export default async function handler(req, res) {
       else if (data.startsWith('approve_delivery_')) {
         const parts = data.split('_');
         const targetChatId = parts[2];
-        const prodId = parts[3];
+        const prodId = parts[3].trim();
 
         let entregableUrl = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/acceso.txt';
         let nombreProd = 'Producto Digital';
