@@ -10,7 +10,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
 
-// 🔗 QR Global por defecto si el producto no tiene uno propio asignado
 const QR_POR_DEFECTO = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr.jpg';
 
 async function guardarMensajeHistorial(telegramId, rol, mensaje) {
@@ -42,7 +41,7 @@ export default async function handler(req, res) {
 
       const isAdmin = String(userId) === String(ADMIN_CHAT_ID);
 
-      const clienteId = await gestionarCliente(userId, userName, userUsername);
+      await gestionarCliente(userId, userName, userUsername);
       await guardarMensajeHistorial(userId, 'user', text);
 
       // --- FUNCIONES DE ADMINISTRACIÓN ---
@@ -53,10 +52,9 @@ export default async function handler(req, res) {
           productos.forEach((p, index) => {
             listaMsg += `${index + 1}. *${p.nombre || 'Sin nombre'}* - Bs. ${p.precio || 0}\n`;
             listaMsg += `   ID: \`${p.id}\`\n`;
-            listaMsg += `   _Borrar:_ \`/eliminar ${p.id}\`\n`;
-            listaMsg += `   _Actualizar:_ \`/actualizar ${p.id} | Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo | URL_Drive\`\n\n`;
+            listaMsg += `   _Borrar:_ \`/eliminar ${p.id}\`\n\n`;
           });
-          listaMsg += `➕ *Para agregar un producto nuevo:*\n\`/nuevo Nombre | Precio | Prompt | Img1 | Img2 | Video1 | Video2 | PDF | QR_Pago | Tipo | URL_Drive\`\n*(Nota: Las casillas vacías se omiten y el QR usará el predeterminado si no se indica)*`;
+          listaMsg += `➕ *Comandos:* \`/nuevo\` o \`/actualizar ID | ...\``;
 
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
@@ -69,11 +67,10 @@ export default async function handler(req, res) {
         if (text.startsWith('/eliminar ')) {
           const prodId = textOriginal.replace('/eliminar ', '').trim();
           await supabase.from('productos').delete().eq('id', prodId);
-
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: `🗑️ Producto con ID \`${prodId}\` eliminado correctamente.` })
+            body: JSON.stringify({ chat_id: chatId, text: `🗑️ Producto eliminado correctamente.` })
           });
           return res.status(200).json({ success: true });
         }
@@ -92,12 +89,7 @@ export default async function handler(req, res) {
           const tipoEntregaNuevo = partes[9] ? partes[9].trim().toLowerCase() : 'manual';
           const urlDriveNuevo = partes[10] ? partes[10].trim() : null;
 
-          const nuevoObjeto = {
-            nombre: nombreNuevo,
-            precio: precioNuevo,
-            prompt_ventas: promptNuevo,
-            tipo_entrega: tipoEntregaNuevo
-          };
+          const nuevoObjeto = { nombre: nombreNuevo, precio: precioNuevo, prompt_ventas: promptNuevo, tipo_entrega: tipoEntregaNuevo };
           if (img1) nuevoObjeto.imagen_url = img1;
           if (img2) nuevoObjeto.imagen_url_2 = img2;
           if (vid1) nuevoObjeto.video_url = vid1;
@@ -107,11 +99,10 @@ export default async function handler(req, res) {
           if (urlDriveNuevo) nuevoObjeto.url_drive = urlDriveNuevo;
 
           await supabase.from('productos').insert([nuevoObjeto]);
-
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: `✅ *¡Producto creado con éxito!*\n\n📦 *${nombreNuevo}*\n💰 *Precio:* Bs. ${precioNuevo}\n🚀 *Tipo:* ${tipoEntregaNuevo}`, parse_mode: 'Markdown' })
+            body: JSON.stringify({ chat_id: chatId, text: `✅ *¡Producto creado con éxito!*\n📦 *${nombreNuevo}*`, parse_mode: 'Markdown' })
           });
           return res.status(200).json({ success: true });
         }
@@ -145,42 +136,35 @@ export default async function handler(req, res) {
           if (urlDriveAct) datosActualizar.url_drive = urlDriveAct;
 
           await supabase.from('productos').update(datosActualizar).eq('id', prodId);
-
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: `🔄 *¡Producto actualizado con éxito!*\nID: \`${prodId}\``, parse_mode: 'Markdown' })
+            body: JSON.stringify({ chat_id: chatId, text: `🔄 *¡Producto actualizado!*\nID: \`${prodId}\``, parse_mode: 'Markdown' })
           });
           return res.status(200).json({ success: true });
         }
       }
 
-      // --- COMANDO DE ADMIN PARA LIBERAR AL CLIENTE ---
+      // --- COMANDO LIBERAR CLIENTE ---
       if (text.startsWith('/liberar ')) {
         const targetId = text.replace('/liberar ', '').trim();
         await supabase.from('clientes').update({ estado_chat: 'ACTIVO' }).eq('telegram_id', targetId);
         
-        const mensajeUpsell = `🎁 *¡Activación completada con éxito!*\n\nYa puedes disfrutar de tu cuenta. Y ya que confiaste en nosotros, ¿te gustaría complementar tu ecosistema digital con otra herramienta o curso con descuento? Escribe *"ver catálogo"*. 🔥`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: targetId, text: mensajeUpsell, parse_mode: 'Markdown' })
+          body: JSON.stringify({ chat_id: targetId, text: `🎁 *¡Activación completada con éxito!*\nYa puedes disfrutar de tu cuenta. Escribe *"catalogo"* si deseas ver más herramientas. 🔥`, parse_mode: 'Markdown' })
         });
-
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: `✅ Cliente ${targetId} liberado y upsell enviado correctamente.` })
+          body: JSON.stringify({ chat_id: chatId, text: `✅ Cliente ${targetId} liberado.` })
         });
         return res.status(200).json({ success: true });
       }
 
-      // --- FILTRO ESTRICTO DE PAUSA (Activación manual) ---
-      const { data: clienteInfo } = await supabase
-        .from('clientes')
-        .select('estado_chat')
-        .eq('telegram_id', userId)
-        .single();
+      // --- FILTRO PAUSA DE CORREO ---
+      const { data: clienteInfo } = await supabase.from('clientes').select('estado_chat').eq('telegram_id', userId).single();
 
       if (clienteInfo && clienteInfo.estado_chat === 'ESPERANDO_CORREO') {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -195,13 +179,12 @@ export default async function handler(req, res) {
 
         await supabase.from('clientes').update({ estado_chat: 'EN_ESPERANDO_ENTREGA' }).eq('telegram_id', userId);
 
-        const respuestaPaciencia = `⏳ *¡Correo recibido correctamente!*\n\nEstamos procesando tu pedido y preparando tu acceso manual. Por favor ten un poco de paciencia; en breve te enviaremos tus datos listos por aquí. 🚀`;
+        const resp = `⏳ *¡Correo recibido correctamente!* Estamos procesando tu pedido. En breve te enviamos tus datos por aquí. 🚀`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: respuestaPaciencia, parse_mode: 'Markdown' })
+          body: JSON.stringify({ chat_id: chatId, text: resp, parse_mode: 'Markdown' })
         });
-        await guardarMensajeHistorial(userId, 'assistant', respuestaPaciencia);
         return res.status(200).json({ success: true });
       }
 
@@ -210,77 +193,62 @@ export default async function handler(req, res) {
       }
 
       if (text === '/admin' || text === 'soy el admin') {
-        const adminMsg = `🔐 *Panel de Administrador Pro*\n\nTu Telegram Chat ID es: \`${chatId}\``;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: adminMsg, parse_mode: 'Markdown' })
+          body: JSON.stringify({ chat_id: chatId, text: `🔐 *Panel Admin Pro*\nTu ID: \`${chatId}\``, parse_mode: 'Markdown' })
         });
-        await guardarMensajeHistorial(userId, 'assistant', adminMsg);
         return res.status(200).json({ success: true });
       }
 
       if (text.startsWith('no ') || text.includes('no quiero') || text.includes('no gracias')) {
-        const msgNo = `Comprendo perfectamente, *${userName}* 👍. Si en algún momento cambias de opinión o necesitas otra herramienta digital, aquí estaré para ayudarte. ¡Que tengas un excelente día! 😊`;
+        const msgNo = `Comprendo perfectamente, *${userName}* 👍. Aquí estaré si necesitas algo más. ¡Excelente día! 😊`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text: msgNo, parse_mode: 'Markdown' })
         });
-        await guardarMensajeHistorial(userId, 'assistant', msgNo);
         return res.status(200).json({ success: true });
       }
 
-      const { data: historialReciente } = await supabase
-        .from('historial_chat')
-        .select('mensaje, rol')
-        .eq('telegram_id', userId)
-        .order('creado_at', { ascending: false })
-        .limit(4);
+      if (text === 'hola' || text === 'buenas' || text === 'start' || text === '/start' || text === 'catalogo' || text === 'ver catalogo') {
+        const productos = await obtenerProductos();
+        let catText = `✨ *Catálogo de Herramientas & Cursos Digitales* ✨\n\nElige o escribe el nombre del producto que deseas consultar:\n\n`;
+        const inlineKeyboard = [];
 
-      const contextoPrevio = historialReciente ? historialReciente.map(h => h.mensaje).join(' ') : '';
-      const hablabaDeProducto = contextoPrevio.includes('gemin') || contextoPrevio.includes('ia') || contextoPrevio.includes('curso');
-
-      if ((text === 'hola' || text === 'buenas' || text === 'start' || text === '/start') && !hablabaDeProducto) {
-        const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido a Digital Boss. Soy tu asesor de inteligencia artificial. ¿Qué herramienta o curso te gustaría consultar hoy? 🚀`;
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: saludoMsg, parse_mode: 'Markdown' })
+        productos.forEach(p => {
+          catText += `📦 *${p.nombre}*\n💰 Precio: Bs. ${p.precio}\n\n`;
+          inlineKeyboard.push([{ text: `🔍 Ver: ${p.nombre}`, callback_data: `ver_prod_${p.id}` }]);
         });
-        await guardarMensajeHistorial(userId, 'assistant', saludoMsg);
-        return res.status(200).json({ success: true });
-      }
 
-      const productos = await obtenerProductos();
-      const productoPrincipal = productos[0] || {};
-      const nombreProd = productoPrincipal.nombre || 'Gemini Advanced 18 Meses';
-      const precioProd = productoPrincipal.precio || 67;
-      const promptProd = productoPrincipal.prompt_ventas || 'Acceso completo y premium.';
-      const objecionesProd = productoPrincipal.objeciones_respuestas || 'Cuentas con soporte técnico garantizado.';
-
-      if (text.includes('video') || text.includes('demosturacion') || text.includes('muestra') || text.includes('ver')) {
-        const videoUrl = productoPrincipal.video_url || 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
-
-        await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            video: videoUrl,
-            caption: `🎥 *Mira ${nombreProd} en acción.*\n\n💰 Inversión: *Bs. ${precioProd}*`,
+            text: catText,
             parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [[{ text: `🛒 ¡Comprar Ahora!`, callback_data: `start_purchase_${productoPrincipal.id}` }]]
-            }
+            reply_markup: { inline_keyboard: inlineKeyboard }
           })
         });
         return res.status(200).json({ success: true });
       }
 
-      // Solicitud general de información o compra
-      if (text.includes('informacion') || text.includes('info') || text.includes('precio') || text.includes('comprar') || text.includes('quiero pagar') || text.includes('pagar')) {
-        const ventasTexto = `🎉 *¡Excelente decisión de compra!*\n\n📦 *${nombreProd}*\n💰 *Precio:* Bs. ${precioProd}\n\n👇 Selecciona tu método de pago preferido para emitir el QR:`;
+      // 🧠 BÚSQUEDA INTELIGENTE DE PRODUCTO POR TEXTO (Ej: "quiero gemini", "curso ia")
+      const productos = await obtenerProductos();
+      let productoSeleccionado = productos.find(p => text.includes(p.nombre.toLowerCase().split(' ')[0])); // Busca por la primera palabra clave
+
+      // Si no encuentra por coincidencia exacta de palabra, toma el primero o muestra el catálogo
+      if (!productoSeleccionado && productos.length > 0) {
+        productoSeleccionado = productos[0]; // Fallback seguro
+      }
+
+      if (productoSeleccionado) {
+        const p = productoSeleccionado;
+        const ventasTexto = `💡 *Información Oficial - ${p.nombre}*\n\n` +
+          `✨ *Detalles:*\n${p.prompt_ventas || 'Acceso completo garantizado.'}\n\n` +
+          `💰 *Inversión:* Bs. ${p.precio}\n\n👇 ¿Qué deseas hacer?`;
+
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -290,8 +258,7 @@ export default async function handler(req, res) {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${precioProd})`, callback_data: `pay_takenos_${productoPrincipal.id}` }],
-                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${productoPrincipal.id}` }]
+                [{ text: `🛒 ¡Comprar ${p.nombre} (Bs. ${p.precio})!`, callback_data: `start_purchase_${p.id}` }]
               ]
             }
           })
@@ -299,12 +266,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      const defaultMsg = 'Estoy aquí para ayudarte a elegir la mejor herramienta o curso digital. Escribe "comprar" o consulta por nuestros productos. 😊';
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: defaultMsg })
-      });
     } 
     else if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
@@ -315,24 +276,67 @@ export default async function handler(req, res) {
       await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Procesando pago...' })
+        body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Cargando...' })
       });
 
-      if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
+      // Botón para ver detalle de un producto específico desde el catálogo
+      if (data.startsWith('ver_prod_')) {
+        const prodId = data.replace('ver_prod_', '');
+        const { data: p } = await supabase.from('productos').select('*').eq('id', prodId).single();
+
+        if (p) {
+          const textoProd = `📦 *${p.nombre}*\n\n📝 ${p.prompt_ventas}\n\n💰 *Precio:* Bs. ${p.precio}`;
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: textoProd,
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: `🛒 ¡Comprar Ahora (Bs. ${p.precio})!`, callback_data: `start_purchase_${p.id}` }]
+                ]
+              }
+            })
+          });
+        }
+      }
+      else if (data.startsWith('start_purchase_')) {
+        const prodId = data.replace('start_purchase_', '');
+        const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
+        const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 50 };
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: `🎉 *¡Excelente decisión!*\n\n📦 *${producto.nombre}*\n💰 *Precio:* Bs. ${producto.precio}\n\n👇 Selecciona tu método de pago para emitir el QR:`, 
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${producto.precio})`, callback_data: `pay_takenos_${producto.id}` }],
+                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${producto.id}` }]
+              ]
+            }
+          })
+        });
+      }
+      else if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
         const parts = data.split('_');
         const method = parts[1];
         const prodId = parts[2];
 
-        const { data: productoPrincipal } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const prod = productoPrincipal || { id: prodId, nombre: 'Producto Digital', precio: 67 };
+        const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
+        const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 50 };
 
-        // 🧠 Lógica inteligente de QR: Usa el QR específico del producto si existe, de lo contrario usa el QR global por defecto
-        const qrUrlToUse = prod.qr_pago_url || QR_POR_DEFECTO;
+        const qrUrlToUse = producto.qr_pago_url || QR_POR_DEFECTO;
 
         try {
           await supabase.from('pedidos').insert([{
-            producto_id: prod.id,
-            monto: prod.precio,
+            producto_id: producto.id,
+            monto: producto.precio,
             estado: 'ESPERANDO_PAGO'
           }]);
         } catch (e) {}
@@ -343,11 +347,11 @@ export default async function handler(req, res) {
           body: JSON.stringify({ 
             chat_id: chatId, 
             photo: qrUrlToUse,
-            caption: `📲 *Escanea el QR de ${method.toUpperCase()} para realizar tu pago.*\n\nUna vez realizado, haz clic en el botón de abajo para notificar al administrador:`,
+            caption: `📲 *Escanea el QR de ${method.toUpperCase()} para ${producto.nombre}.*\n\nUna vez realizado, haz clic abajo para notificar al administrador:`,
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${prod.id}` }]
+                [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${producto.id}` }]
               ]
             }
           })
@@ -363,7 +367,7 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `⏳ *Pago notificado.* Nuestro equipo está verificando tu comprobante. ¡En un momento te entregamos tu acceso! 🚀`, 
+            text: `⏳ *Pago notificado.* Estamos verificando tu comprobante. ¡En un momento te entregamos tu acceso! 🚀`, 
             parse_mode: 'Markdown' 
           })
         });
@@ -422,7 +426,7 @@ export default async function handler(req, res) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
                 chat_id: targetChatId, 
-                text: `🎁 *¡Oferta exclusiva VIP!*\n\n¿Te gustaría complementar tu aprendizaje con más herramientas o cursos con descuento? Escribe *"ver catálogo"*. 🔥`, 
+                text: `🎁 *¡Oferta exclusiva VIP!*\n\n¿Te gustaría ver más herramientas? Escribe *"catalogo"*. 🔥`, 
                 parse_mode: 'Markdown' 
               })
             });
@@ -436,7 +440,7 @@ export default async function handler(req, res) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               chat_id: targetChatId, 
-              text: `¡Pago aprobado con éxito! photochemical\n\nPara activar tu acceso a *${nombreProd}*, por favor *escribe aquí tu correo electrónico* personal en el siguiente mensaje. ✉️`, 
+              text: `¡Pago aprobado con éxito! 🎉\n\nPara activar tu acceso a *${nombreProd}*, por favor *escribe aquí tu correo electrónico* personal en el siguiente mensaje. ✉️`, 
               parse_mode: 'Markdown' 
             })
           });
