@@ -10,7 +10,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
 
-// 🔗 QR Global por defecto original
 const QR_POR_DEFECTO = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr.jpg';
 
 async function guardarMensajeHistorial(telegramId, rol, mensaje) {
@@ -296,7 +295,7 @@ export default async function handler(req, res) {
       });
 
       if (data.startsWith('ver_prod_')) {
-        const prodId = data.replace('ver_prod_', '');
+        const prodId = data.replace('ver_prod_', '').trim();
         const { data: p } = await supabase.from('productos').select('*').eq('id', prodId).single();
 
         if (p) {
@@ -318,7 +317,7 @@ export default async function handler(req, res) {
         }
       }
       else if (data.startsWith('start_purchase_')) {
-        const prodId = data.replace('start_purchase_', '');
+        const prodId = data.replace('start_purchase_', '').trim();
         const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
         const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 50 };
 
@@ -341,33 +340,44 @@ export default async function handler(req, res) {
       else if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
         const parts = data.split('_');
         const method = parts[1];
-        const prodId = parts[2];
+        const prodId = parts[2].trim();
 
-        const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
-        const producto = prod || { id: prodId, nombre: 'Producto Digital', precio: 50 };
+        // Búsqueda segura con respaldo para evitar que se caiga si el ID no cruza exacto
+        let nombreProd = 'Producto Digital';
+        let precioProd = 50;
+        let qrUrlToUse = QR_POR_DEFECTO;
 
-        // 🔗 Lógica original y directa del QR (Si el producto tiene qr_pago_url lo usa, si no, usa el QR por defecto)
-        const qrUrlToUse = producto.qr_pago_url ? producto.qr_pago_url : QR_POR_DEFECTO;
+        try {
+          const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          if (prod) {
+            nombreProd = prod.nombre || nombreProd;
+            precioProd = prod.precio || precioProd;
+            if (prod.qr_pago_url && prod.qr_pago_url.trim() !== '') {
+              qrUrlToUse = prod.qr_pago_url.trim();
+            }
+          }
+        } catch (e) {}
 
         try {
           await supabase.from('pedidos').insert([{
-            producto_id: producto.id,
-            monto: producto.precio,
+            producto_id: prodId,
+            monto: precioProd,
             estado: 'ESPERANDO_PAGO'
           }]);
         } catch (e) {}
 
+        // Envío blindado de la foto del QR
         await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
             photo: qrUrlToUse,
-            caption: `📲 *Escanea el QR de ${method.toUpperCase()} para ${producto.nombre}.*\n\nUna vez realizado, haz clic abajo para notificar al administrador:`,
+            caption: `📲 *Escanea el QR de ${method.toUpperCase()} para ${nombreProd}.*\n\nUna vez realizado, haz clic abajo para notificar al administrador:`,
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${producto.id}` }]
+                [{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${prodId}` }]
               ]
             }
           })
@@ -376,7 +386,7 @@ export default async function handler(req, res) {
       else if (data.startsWith('notify_admin_')) {
         const parts = data.split('_');
         const targetChatId = parts[2];
-        const prodId = parts[3];
+        const prodId = parts[3].trim();
 
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -408,7 +418,7 @@ export default async function handler(req, res) {
       else if (data.startsWith('approve_delivery_')) {
         const parts = data.split('_');
         const targetChatId = parts[2];
-        const prodId = parts[3];
+        const prodId = parts[3].trim();
 
         let entregableUrl = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/acceso.txt';
         let nombreProd = 'Producto Digital';
