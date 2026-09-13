@@ -24,7 +24,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V5.3 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V5.4 is running' });
   }
 
   try {
@@ -96,14 +96,12 @@ export default async function handler(req, res) {
           precioProd = prod.precio || precioProd;
 
           if (method === 'takenos') {
-            // Takenos usa su QR específico, o la imagen principal del producto, o el por defecto
             if (prod.qr_pago_url && prod.qr_pago_url.trim() !== '') {
               qrUrl = prod.qr_pago_url.trim();
             } else if (prod.imagen_url && prod.imagen_url.trim() !== '') {
               qrUrl = prod.imagen_url.trim();
             }
           } else if (method === 'binance') {
-            // Binance usa estrictamente su propio QR de Binance, o el por defecto
             if (prod.qr_binance_url && prod.qr_binance_url.trim() !== '') {
               qrUrl = prod.qr_binance_url.trim();
             }
@@ -258,7 +256,10 @@ export default async function handler(req, res) {
           if (vid1) nuevoObjeto.video_url = vid1;
           if (vid2) nuevoObjeto.video_url_2 = vid2;
           if (pdfUrl) nuevoObjeto.pdf_url = pdfUrl;
-          if (qrPago) nuevoObjeto.qr_pago_url = qrPago;
+          if (qrPago) {
+            nuevoObjeto.qr_pago_url = qrPago;
+            nuevoObjeto.qr_binance_url = qrPago;
+          }
           if (urlDriveNuevo) nuevoObjeto.url_drive = urlDriveNuevo;
 
           await supabase.from('productos').insert([nuevoObjeto]);
@@ -294,7 +295,10 @@ export default async function handler(req, res) {
           if (vid1Act) datosActualizar.video_url = vid1Act;
           if (vid2Act) datosActualizar.video_url_2 = vid2Act;
           if (pdfAct) datosActualizar.pdf_url = pdfAct;
-          if (qrAct) datosActualizar.qr_pago_url = qrAct;
+          if (qrAct) {
+            datosActualizar.qr_pago_url = qrAct;
+            datosActualizar.qr_binance_url = qrAct;
+          }
           if (tipoAct) datosActualizar.tipo_entrega = tipoAct;
           if (urlDriveAct) datosActualizar.url_drive = urlDriveAct;
 
@@ -341,8 +345,9 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
+      // 🧠 BÚSQUEDA MULTIPRODUCTO MEJORADA (Busca coincidencias exactas o parciales en todo el nombre del producto)
       const productos = await obtenerProductos();
-      let productoSeleccionado = productos.find(p => text.includes(p.nombre.toLowerCase().split(' ')[0])) || productos[0];
+      let productoSeleccionado = productos.find(p => text.includes(p.nombre.toLowerCase()) || p.nombre.toLowerCase().split(' ').some(palabra => palabra.length > 3 && text.includes(palabra))) || productos[0];
 
       if ((text === 'hola' || text === 'start' || text === '/start' || text === 'catalogo')) {
         const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido al catálogo. ¿Qué herramienta o curso deseas consultar hoy? 🚀`;
