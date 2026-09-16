@@ -37,7 +37,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V6.4 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.5 is running' });
   }
 
   try {
@@ -387,7 +387,57 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 BÚSQUEDA SEGURA Y LIMPIA EN SUPABASE (Sin adivinar con Gemini)
+      // 🧠 DETECCIÓN INTELIGENTE DE SALUDOS Y PREGUNTAS DE CATÁLOGO GENERAL
+      if (
+        text.includes('hola') || 
+        text.includes('buenos dias') || 
+        text.includes('buenos días') || 
+        text.includes('buenas tardes') || 
+        text.includes('buenas noches') || 
+        text.includes('que productos') || 
+        text.includes('qué productos') || 
+        text.includes('catalogo') || 
+        text.includes('catálogo') || 
+        text.includes('cursos') || 
+        text.includes('vendes') || 
+        text === 'start' || 
+        text === '/start'
+      ) {
+        const productos = await obtenerProductosDirecto();
+        
+        if (productos.length === 0) {
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: `¡Hola, *${userName}*! 👋 Bienvenido. Pronto tendremos cursos disponibles para ti. 🚀`, parse_mode: 'Markdown' })
+          });
+          return res.status(200).json({ success: true });
+        }
+
+        let catalogoMsg = `¡Hola, *${userName}*! 👋 Bienvenido. Aquí tienes nuestros productos y cursos disponibles:\n\n`;
+        const inlineKeyboard = [];
+        
+        productos.forEach((p) => {
+          catalogoMsg += `📦 *${p.nombre}*\n💰 Precio: Bs. ${p.precio}\n\n`;
+          inlineKeyboard.push([{ text: `👉 Ver ${p.nombre}`, callback_data: `start_purchase_${p.id}` }]);
+        });
+
+        catalogoMsg += `Haz clic en un botón abajo o escribe el nombre del curso que te interesa:`;
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: catalogoMsg, 
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: inlineKeyboard }
+          })
+        });
+        return res.status(200).json({ success: true });
+      }
+
+      // 🧠 BÚSQUEDA SEGURA Y LIMPIA DE PRODUCTOS ESPECÍFICOS EN SUPABASE
       const productos = await obtenerProductosDirecto();
       let productoSeleccionado = null;
 
@@ -399,24 +449,14 @@ export default async function handler(req, res) {
         }
       }
 
-      if (text === 'hola' || text === 'start' || text === '/start' || text === 'catalogo') {
-        const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido al catálogo. ¿Qué herramienta o curso deseas consultar hoy? 🚀`;
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: saludoMsg, parse_mode: 'Markdown' })
-        });
-        return res.status(200).json({ success: true });
-      }
-
-      // 🛡️ CONTROL DE FALLBACK SEGURO: Si no encuentra el producto, avisa en vez de reciclar Gemini
+      // 🛡️ CONTROL DE FALLBACK SEGURO: Si el cliente escribe algo que no existe y no es saludo
       if (!productoSeleccionado) {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             chat_id: chatId, 
-            text: `Mmm... no encontré un producto con ese nombre exacto 😅.\n\nEscribe *catalogo* para ver la lista de cursos disponibles.`, 
+            text: `Mmm... no encontré un producto con ese nombre exacto 😅.\n\nEscribe *catalogo* para ver la lista completa de cursos disponibles.`, 
             parse_mode: 'Markdown' 
           })
         });
@@ -440,7 +480,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      if (text.includes('comprar') || text.includes('pagar') || text.includes('quiero') || text.includes('catalogo')) {
+      if (text.includes('comprar') || text.includes('pagar') || text.includes('quiero')) {
         const p = productoSeleccionado;
         const compraMsg = `🎉 *¡Excelente decisión!*\n\n📦 *${p.nombre}*\n💰 *Precio:* Bs. ${p.precio}\n\n👇 Selecciona tu método de pago:`;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
