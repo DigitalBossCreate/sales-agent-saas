@@ -10,10 +10,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
 
-// 🔗 QR Global por defecto infalible
-const QR_POR_DEFECTO = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr.jpg';
+// 🔗 Dos QR globales independientes por método de pago
+const QR_POR_DEFECTO_TAKENOS = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr-takenos.jpg';
+const QR_POR_DEFECTO_BINANCE = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr-binance.jpg';
 
-// Función directa para obtener productos de Supabase sin depender de librerías externas restrictivas
 async function obtenerProductosDirecto() {
   try {
     const { data, error } = await supabase.from('productos').select('*');
@@ -37,7 +37,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V6.2 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.4 is running' });
   }
 
   try {
@@ -110,7 +110,7 @@ export default async function handler(req, res) {
         const method = parts[1]; // 'takenos' o 'binance'
         const prodId = parts[2].trim();
 
-        let qrUrl = ''; 
+        let qrUrl = '';
         let nombreProd = 'Producto Digital';
         let precioProd = 50;
 
@@ -123,8 +123,6 @@ export default async function handler(req, res) {
             if (method === 'takenos') {
               if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim().startsWith('http')) {
                 qrUrl = prod.qr_pago_url.trim();
-              } else if (prod.imagen_url && typeof prod.imagen_url === 'string' && prod.imagen_url.trim().startsWith('http')) {
-                qrUrl = prod.imagen_url.trim();
               }
             } else if (method === 'binance') {
               if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim().startsWith('http')) {
@@ -134,20 +132,26 @@ export default async function handler(req, res) {
           }
         } catch (e) {}
 
-        // 🛡️ REGLA ABSOLUTA: Si no hay QR propio cargado, usa obligatoriamente el QR por defecto
+        // 🛡️ REGLA ABSOLUTA: si no hay QR propio del producto, usa el default correcto SEGÚN el método elegido
         if (!qrUrl || !qrUrl.startsWith('http')) {
-          qrUrl = QR_POR_DEFECTO;
+          qrUrl = (method === 'binance') ? QR_POR_DEFECTO_BINANCE : QR_POR_DEFECTO_TAKENOS;
         }
 
         try {
-          await supabase.from('pedidos').insert([{ producto_id: prodId, monto: precioProd, estado: 'ESPERANDO_PAGO' }]);
+          await supabase.from('pedidos').insert([{
+            producto_id: prodId,
+            monto: precioProd,
+            estado: 'ESPERANDO_PAGO',
+            telegram_id: String(chatId),
+            metodo_pago: method
+          }]);
         } catch (e) {}
 
         await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            chat_id: chatId, 
+          body: JSON.stringify({
+            chat_id: chatId,
             photo: qrUrl,
             caption: `📲 *Escanea el QR de ${method.toUpperCase()} para ${nombreProd}.*\n\nHaz clic abajo cuando realices el pago:`,
             parse_mode: 'Markdown',
@@ -202,7 +206,14 @@ export default async function handler(req, res) {
             if (prodData.url_drive) entregableUrl = prodData.url_drive;
             else if (prodData.pdf_url) entregableUrl = prodData.pdf_url;
           }
-          await supabase.from('pedidos').update({ estado: 'PAGADO' }).eq('estado', 'ESPERANDO_PAGO');
+
+          // 🎯 FIX QUIRÚRGICO: Actualiza únicamente el pedido de ESTE cliente y ESTE producto
+          await supabase.from('pedidos')
+            .update({ estado: 'PAGADO' })
+            .eq('telegram_id', String(targetChatId))
+            .eq('producto_id', prodId)
+            .eq('estado', 'ESPERANDO_PAGO');
+
         } catch (e) {}
 
         if (tipoEntrega === 'automatico') {
@@ -212,7 +223,7 @@ export default async function handler(req, res) {
             body: JSON.stringify({ chat_id: targetChatId, text: `¡Pago aprobado! 🎉\n\nTu producto: *${nombreProd}*\n🔗 *Enlace:* ${entregableUrl}`, parse_mode: 'Markdown' })
           });
         } else {
-          await supabase.from('clientes').update({ estado_chat: 'ESPERANDO_CORREO' }).eq('telegram_id', targetChatId);
+          await supabase.from('clientes').update({ estado_chat: 'ESPERANDO_CORREO' }).eq('telegram_id', String(targetChatId));
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -343,7 +354,7 @@ export default async function handler(req, res) {
         }
       }
 
-      const { data: clienteInfo } = await supabase.from('clientes').select('estado_chat').eq('telegram_id', userId).single();
+      const { data: clienteInfo } = await supabase.from('clientes').select('estado_chat').eq('telegram_id', String(userId)).single();
 
       if (clienteInfo && clienteInfo.estado_chat === 'ESPERANDO_CORREO') {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -376,30 +387,40 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 BÚSQUEDA DIRECTA Y REAL EN SUPABASE (Sin filtros externos obsoletos)
+      // 🧠 BÚSQUEDA SEGURA Y LIMPIA EN SUPABASE (Sin adivinar con Gemini)
       const productos = await obtenerProductosDirecto();
       let productoSeleccionado = null;
 
       for (const p of productos) {
-        const nombreP = (p.nombre || '').toLowerCase();
-        // Coincidencia exacta o si contiene parte significativa del nombre del producto
-        if (text === nombreP || text.includes(nombreP) || nombreP.split(' ').some(w => w.length > 3 && text.includes(w))) {
+        const nombreP = (p.nombre || '').toLowerCase().trim();
+        if (text === nombreP || text.includes(nombreP) || (nombreP.length > 3 && text.includes(nombreP))) {
           productoSeleccionado = p;
           break;
         }
       }
 
+      if (text === 'hola' || text === 'start' || text === '/start' || text === 'catalogo') {
+        const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido al catálogo. ¿Qué herramienta o curso deseas consultar hoy? 🚀`;
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: saludoMsg, parse_mode: 'Markdown' })
+        });
+        return res.status(200).json({ success: true });
+      }
+
+      // 🛡️ CONTROL DE FALLBACK SEGURO: Si no encuentra el producto, avisa en vez de reciclar Gemini
       if (!productoSeleccionado) {
-        if (text === 'hola' || text === 'start' || text === '/start' || text === 'catalogo') {
-          const saludoMsg = `¡Hola, *${userName}*! 👋 Bienvenido al catálogo. ¿Qué herramienta o curso deseas consultar hoy? 🚀`;
-          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: saludoMsg, parse_mode: 'Markdown' })
-          });
-          return res.status(200).json({ success: true });
-        }
-        productoSeleccionado = productos[0] || { id: 'default', nombre: 'Producto Digital', precio: 50 };
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: `Mmm... no encontré un producto con ese nombre exacto 😅.\n\nEscribe *catalogo* para ver la lista de cursos disponibles.`, 
+            parse_mode: 'Markdown' 
+          })
+        });
+        return res.status(200).json({ success: true });
       }
 
       if (text.includes('video') || text.includes('ver')) {
