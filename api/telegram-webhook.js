@@ -10,7 +10,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
 
-// 🔗 Dos QR globales independientes por método de pago
 const QR_POR_DEFECTO_TAKENOS = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr-takenos.jpg';
 const QR_POR_DEFECTO_BINANCE = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr-binance.jpg';
 
@@ -37,14 +36,13 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V6.5 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.6 is running' });
   }
 
   try {
     const update = req.body;
     const token = TELEGRAM_TOKEN;
 
-    // --- MANEJADOR DE BOTONES (CALLBACK QUERY) ---
     if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
@@ -98,17 +96,17 @@ export default async function handler(req, res) {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${precioP})`, callback_data: `pay_takenos_${prodId}` }],
-                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${prodId}` }]
+                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${precioP})`, callback_data: `pt_${prodId}` }],
+                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pb_${prodId}` }]
               ]
             }
           })
         });
       }
-      else if (data.startsWith('pay_takenos_') || data.startsWith('pay_binance_')) {
-        const parts = data.split('_');
-        const method = parts[1]; // 'takenos' o 'binance'
-        const prodId = parts[2].trim();
+      else if (data.startsWith('pt_') || data.startsWith('pb_')) {
+        const isBinance = data.startsWith('pb_');
+        const method = isBinance ? 'binance' : 'takenos';
+        const prodId = data.replace(isBinance ? 'pb_' : 'pt_', '').trim();
 
         let qrUrl = '';
         let nombreProd = 'Producto Digital';
@@ -132,7 +130,6 @@ export default async function handler(req, res) {
           }
         } catch (e) {}
 
-        // 🛡️ REGLA ABSOLUTA: si no hay QR propio del producto, usa el default correcto SEGÚN el método elegido
         if (!qrUrl || !qrUrl.startsWith('http')) {
           qrUrl = (method === 'binance') ? QR_POR_DEFECTO_BINANCE : QR_POR_DEFECTO_TAKENOS;
         }
@@ -207,7 +204,6 @@ export default async function handler(req, res) {
             else if (prodData.pdf_url) entregableUrl = prodData.pdf_url;
           }
 
-          // 🎯 FIX QUIRÚRGICO: Actualiza únicamente el pedido de ESTE cliente y ESTE producto
           await supabase.from('pedidos')
             .update({ estado: 'PAGADO' })
             .eq('telegram_id', String(targetChatId))
@@ -235,7 +231,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
 
-    // --- MANEJADOR DE MENSAJES DE CHAT ---
     if (update && update.message) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
@@ -387,7 +382,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 DETECCIÓN INTELIGENTE Y FLEXIBLE DE SALUDOS / CATÁLOGO GENERAL
       const textoLimpio = text.trim();
       
       if (
@@ -440,7 +434,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 BÚSQUEDA SEGURA Y LIMPIA DE PRODUCTOS ESPECÍFICOS EN SUPABASE
       const productos = await obtenerProductosDirecto();
       let productoSeleccionado = null;
 
@@ -452,7 +445,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // 🛡️ CONTROL DE FALLBACK SEGURO: Si el cliente escribe algo que no existe y no es saludo
       if (!productoSeleccionado) {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
@@ -495,8 +487,8 @@ export default async function handler(req, res) {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${p.precio})`, callback_data: `pay_takenos_${p.id}` }],
-                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pay_binance_${p.id}` }]
+                [{ text: `🇧🇴 Pagar con QR Takenos (Bs. ${p.precio})`, callback_data: `pt_${p.id}` }],
+                [{ text: `🌐 Pagar con USDT Binance (USD)`, callback_data: `pb_${p.id}` }]
               ]
             }
           })
