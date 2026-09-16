@@ -1,6 +1,6 @@
 import { gestionarCliente } from '../lib/bot-core.js';
 import { createClient } from '@supabase/supabase-js';
-import { GoogleGenAI } from '@google/genai'; // 👈 Preparado con la librería oficial de Gemini
+import { GoogleGenAI } from '@google/genai';
 
 const SUPABASE_URL = 'https://nvzovzegagabdhdzqpgq.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
@@ -8,7 +8,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
 
-// Inicialización de Gemini (requiere GEMINI_API_KEY en variables de entorno de Vercel)
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
@@ -40,14 +39,13 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V6.9 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.10 is running' });
   }
 
   try {
     const update = req.body;
     const token = TELEGRAM_TOKEN;
 
-    // --- MANEJADOR DE BOTONES (CALLBACK QUERY) ---
     if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
@@ -65,7 +63,7 @@ export default async function handler(req, res) {
         let precioP = 50;
 
         try {
-          const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).maybeSingle();
           if (prod) {
             nombreP = prod.nombre || nombreP;
             precioP = prod.precio || precioP;
@@ -93,7 +91,7 @@ export default async function handler(req, res) {
         let videoUrl = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
         
         try {
-          const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).maybeSingle();
           if (prodData && prodData.video_url) videoUrl = prodData.video_url;
         } catch (e) {}
         
@@ -113,31 +111,23 @@ export default async function handler(req, res) {
         const method = isBinance ? 'binance' : 'takenos';
         const prodId = data.replace(isBinance ? 'pb_' : 'pt_', '').trim();
 
-        let qrUrl = '';
+        let qrUrl = (method === 'binance') ? QR_POR_DEFECTO_BINANCE : QR_POR_DEFECTO_TAKENOS;
         let nombreProd = 'Producto Digital';
         let precioProd = 50;
 
         try {
-          const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).maybeSingle();
           if (prod) {
             nombreProd = prod.nombre || nombreProd;
             precioProd = prod.precio || precioProd;
 
-            if (method === 'takenos') {
-              if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim().startsWith('http')) {
-                qrUrl = prod.qr_pago_url.trim();
-              }
-            } else if (method === 'binance') {
-              if (prod.qr_binance_url && typeof prod.qr_binance_url === 'string' && prod.qr_binance_url.trim().startsWith('http')) {
-                qrUrl = prod.qr_binance_url.trim();
-              }
+            if (method === 'takenos' && prod.qr_pago_url && prod.qr_pago_url.trim().startsWith('http')) {
+              qrUrl = prod.qr_pago_url.trim();
+            } else if (method === 'binance' && prod.qr_binance_url && prod.qr_binance_url.trim().startsWith('http')) {
+              qrUrl = prod.qr_binance_url.trim();
             }
           }
         } catch (e) {}
-
-        if (!qrUrl || !qrUrl.startsWith('http')) {
-          qrUrl = (method === 'binance') ? QR_POR_DEFECTO_BINANCE : QR_POR_DEFECTO_TAKENOS;
-        }
 
         try {
           await supabase.from('pedidos').insert([{
@@ -201,7 +191,7 @@ export default async function handler(req, res) {
         let tipoEntrega = 'manual';
 
         try {
-          const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).maybeSingle();
           if (prodData) {
             nombreProd = prodData.nombre;
             tipoEntrega = (prodData.tipo_entrega || 'manual').toLowerCase();
@@ -209,7 +199,6 @@ export default async function handler(req, res) {
             else if (prodData.pdf_url) entregableUrl = prodData.pdf_url;
           }
 
-          // 🎯 FIX QUIRÚRGICO: Actualiza únicamente el pedido de ESTE cliente y ESTE producto
           await supabase.from('pedidos')
             .update({ estado: 'PAGADO' })
             .eq('telegram_id', String(targetChatId))
@@ -237,7 +226,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
 
-    // --- MANEJADOR DE MENSAJES DE CHAT ---
     if (update && update.message) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
@@ -250,8 +238,7 @@ export default async function handler(req, res) {
       await gestionarCliente(userId, userName, userUsername);
       await guardarMensajeHistorial(userId, 'user', text);
 
-      // 🛡️ 1️⃣ PRIORIDAD MÁXIMA: Interceptar correo pendiente sin buscar productos
-      const { data: clienteInfo } = await supabase.from('clientes').select('estado_chat').eq('telegram_id', String(userId)).single();
+      const { data: clienteInfo } = await supabase.from('clientes').select('estado_chat').eq('telegram_id', String(userId)).maybeSingle();
 
       if (clienteInfo && clienteInfo.estado_chat === 'ESPERANDO_CORREO') {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -391,7 +378,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 Detección flexible de saludos y catálogo general
       const textoLimpio = text.trim();
       
       if (
@@ -444,7 +430,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // Búsqueda directa de producto específico
       const productos = await obtenerProductosDirecto();
       let productoSeleccionado = null;
 
@@ -518,7 +503,7 @@ export default async function handler(req, res) {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `🛒 ¡Comprar Ahora!`, callback_data: `b_${p.id}` }],
+              [{ text: `🛒 ¡Comprar Now!`, callback_data: `b_${p.id}` }],
               [{ text: `🎥 Ver Video`, callback_data: `v_${p.id}` }]
             ]
           }
