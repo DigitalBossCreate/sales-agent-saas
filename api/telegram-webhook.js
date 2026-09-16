@@ -36,7 +36,7 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V6.6 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.7 is running' });
   }
 
   try {
@@ -54,28 +54,9 @@ export default async function handler(req, res) {
         body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Procesando...' })
       });
 
-      if (data.startsWith('send_demo_video_')) {
-        const prodId = data.replace('send_demo_video_', '').trim();
-        let videoUrl = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
-        
-        try {
-          const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
-          if (prodData && prodData.video_url) videoUrl = prodData.video_url;
-        } catch (e) {}
-        
-        await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            video: videoUrl,
-            caption: `🎥 *Demostración en Vivo*`,
-            reply_markup: { inline_keyboard: [[{ text: `🛒 ¡Comprar Ahora!`, callback_data: `start_purchase_${prodId}` }]] }
-          })
-        });
-      }
-      else if (data.startsWith('start_purchase_')) {
-        const prodId = data.replace('start_purchase_', '').trim();
+      // 🛒 FLUJO DE COMPRA DIRECTO (Usa prefijo ultracorto 'b_' en vez de start_purchase_)
+      if (data.startsWith('b_')) {
+        const prodId = data.replace('b_', '').trim();
         let nombreP = 'Producto Digital';
         let precioP = 50;
 
@@ -103,6 +84,27 @@ export default async function handler(req, res) {
           })
         });
       }
+      else if (data.startsWith('v_')) {
+        const prodId = data.replace('v_', '').trim();
+        let videoUrl = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/video%20gemini/video%20para%20gemini.mp4';
+        
+        try {
+          const { data: prodData } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          if (prodData && prodData.video_url) videoUrl = prodData.video_url;
+        } catch (e) {}
+        
+        await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            video: videoUrl,
+            caption: `🎥 *Demostración en Vivo*`,
+            reply_markup: { inline_keyboard: [[{ text: `🛒 ¡Comprar Ahora!`, callback_data: `b_${prodId}` }]] }
+          })
+        });
+      }
+      // 💳 PROCESAMIENTO DE PAGO (Takenos = pt_, Binance = pb_)
       else if (data.startsWith('pt_') || data.startsWith('pb_')) {
         const isBinance = data.startsWith('pb_');
         const method = isBinance ? 'binance' : 'takenos';
@@ -416,7 +418,8 @@ export default async function handler(req, res) {
         
         productos.forEach((p) => {
           catalogoMsg += `📦 *${p.nombre}*\n💰 Precio: Bs. ${p.precio}\n\n`;
-          inlineKeyboard.push([{ text: `👉 Ver ${p.nombre}`, callback_data: `start_purchase_${p.id}` }]);
+          // 🛡️ Usamos prefijo corto 'b_' para los botones del catálogo general
+          inlineKeyboard.push([{ text: `👉 Ver ${p.nombre}`, callback_data: `b_${p.id}` }]);
         });
 
         catalogoMsg += `Haz clic en un botón abajo o escribe el nombre del curso que te interesa:`;
@@ -469,7 +472,8 @@ export default async function handler(req, res) {
             video: videoUrl,
             caption: `🎥 *Mira ${p.nombre} en acción.*\n\n💰 Inversión: *Bs. ${p.precio}*`,
             parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{ text: `🛒 ¡Comprar Ahora!`, callback_data: `start_purchase_${p.id}` }]] }
+            // 🛡️ Usamos 'b_' aquí también
+            reply_markup: { inline_keyboard: [[{ text: `🛒 ¡Comprar Ahora!`, callback_data: `b_${p.id}` }]] }
           })
         });
         return res.status(200).json({ success: true });
@@ -507,8 +511,8 @@ export default async function handler(req, res) {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `🛒 ¡Comprar Ahora!`, callback_data: `start_purchase_${p.id}` }],
-              [{ text: `🎥 Ver Video`, callback_data: `send_demo_video_${p.id}` }]
+              [{ text: `🛒 ¡Comprar Ahora!`, callback_data: `b_${p.id}` }],
+              [{ text: `🎥 Ver Video`, callback_data: `v_${p.id}` }]
             ]
           }
         })
