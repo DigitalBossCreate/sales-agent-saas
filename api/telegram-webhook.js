@@ -1,11 +1,15 @@
 import { gestionarCliente } from '../lib/bot-core.js';
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI } from '@google/genai'; // 👈 Preparado con la librería oficial de Gemini
 
 const SUPABASE_URL = 'https://nvzovzegagabdhdzqpgq.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
+
+// Inicialización de Gemini (requiere GEMINI_API_KEY en variables de entorno de Vercel)
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '1812341990';
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8567773547:AAEE5QHxxSMOhnWyjR0QLS1R2vzTO9u3Dws';
@@ -36,13 +40,14 @@ async function guardarMensajeHistorial(telegramId, rol, mensaje) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'Digital Boss Bot Core V6.7 is running' });
+    return res.status(200).json({ status: 'Digital Boss Bot Core V6.9 is running' });
   }
 
   try {
     const update = req.body;
     const token = TELEGRAM_TOKEN;
 
+    // --- MANEJADOR DE BOTONES (CALLBACK QUERY) ---
     if (update && update.callback_query) {
       const callbackQuery = update.callback_query;
       const chatId = callbackQuery.message.chat.id;
@@ -54,7 +59,6 @@ export default async function handler(req, res) {
         body: JSON.stringify({ callback_query_id: callbackQuery.id, text: 'Procesando...' })
       });
 
-      // 🛒 FLUJO DE COMPRA DIRECTO (Usa prefijo ultracorto 'b_' en vez de start_purchase_)
       if (data.startsWith('b_')) {
         const prodId = data.replace('b_', '').trim();
         let nombreP = 'Producto Digital';
@@ -104,7 +108,6 @@ export default async function handler(req, res) {
           })
         });
       }
-      // 💳 PROCESAMIENTO DE PAGO (Takenos = pt_, Binance = pb_)
       else if (data.startsWith('pt_') || data.startsWith('pb_')) {
         const isBinance = data.startsWith('pb_');
         const method = isBinance ? 'binance' : 'takenos';
@@ -206,6 +209,7 @@ export default async function handler(req, res) {
             else if (prodData.pdf_url) entregableUrl = prodData.pdf_url;
           }
 
+          // 🎯 FIX QUIRÚRGICO: Actualiza únicamente el pedido de ESTE cliente y ESTE producto
           await supabase.from('pedidos')
             .update({ estado: 'PAGADO' })
             .eq('telegram_id', String(targetChatId))
@@ -233,6 +237,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
 
+    // --- MANEJADOR DE MENSAJES DE CHAT ---
     if (update && update.message) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
@@ -244,6 +249,30 @@ export default async function handler(req, res) {
       const isAdmin = String(userId) === String(ADMIN_CHAT_ID);
       await gestionarCliente(userId, userName, userUsername);
       await guardarMensajeHistorial(userId, 'user', text);
+
+      // 🛡️ 1️⃣ PRIORIDAD MÁXIMA: Interceptar correo pendiente sin buscar productos
+      const { data: clienteInfo } = await supabase.from('clientes').select('estado_chat').eq('telegram_id', String(userId)).single();
+
+      if (clienteInfo && clienteInfo.estado_chat === 'ESPERANDO_CORREO') {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: ADMIN_CHAT_ID || chatId,
+            text: `✉️ *Correo recibido del cliente (\`${chatId}\`)*:\n\n\`${update.message.text}\`\n\n_Libéralo con:_ \`/liberar ${chatId}\``,
+            parse_mode: 'Markdown'
+          })
+        });
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: `⏳ *¡Correo recibido correctamente!* En breve te enviamos tus datos. 🚀` })
+        });
+
+        await supabase.from('clientes').update({ estado_chat: 'ACTIVO' }).eq('telegram_id', String(userId));
+        return res.status(200).json({ success: true });
+      }
 
       if (isAdmin) {
         if (text === '/catalogo_admin' || text === 'catalogo') {
@@ -351,28 +380,6 @@ export default async function handler(req, res) {
         }
       }
 
-      const { data: clienteInfo } = await supabase.from('clientes').select('estado_chat').eq('telegram_id', String(userId)).single();
-
-      if (clienteInfo && clienteInfo.estado_chat === 'ESPERANDO_CORREO') {
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: ADMIN_CHAT_ID || chatId,
-            text: `✉️ *Correo recibido del cliente (\`${chatId}\`)*:\n\n\`${update.message.text}\`\n\n_Libéralo con:_ \`/liberar ${chatId}\``,
-            parse_mode: 'Markdown'
-          })
-        });
-
-        const resp = `⏳ *¡Correo recibido correctamente!* En breve te enviamos tus datos. 🚀`;
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: resp })
-        });
-        return res.status(200).json({ success: true });
-      }
-
       if (text.startsWith('/liberar ')) {
         const targetId = text.replace('/liberar ', '').trim();
         await supabase.from('clientes').update({ estado_chat: 'ACTIVO' }).eq('telegram_id', targetId);
@@ -384,6 +391,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
+      // 🧠 Detección flexible de saludos y catálogo general
       const textoLimpio = text.trim();
       
       if (
@@ -418,7 +426,6 @@ export default async function handler(req, res) {
         
         productos.forEach((p) => {
           catalogoMsg += `📦 *${p.nombre}*\n💰 Precio: Bs. ${p.precio}\n\n`;
-          // 🛡️ Usamos prefijo corto 'b_' para los botones del catálogo general
           inlineKeyboard.push([{ text: `👉 Ver ${p.nombre}`, callback_data: `b_${p.id}` }]);
         });
 
@@ -437,6 +444,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
+      // Búsqueda directa de producto específico
       const productos = await obtenerProductosDirecto();
       let productoSeleccionado = null;
 
@@ -472,7 +480,6 @@ export default async function handler(req, res) {
             video: videoUrl,
             caption: `🎥 *Mira ${p.nombre} en acción.*\n\n💰 Inversión: *Bs. ${p.precio}*`,
             parse_mode: 'Markdown',
-            // 🛡️ Usamos 'b_' aquí también
             reply_markup: { inline_keyboard: [[{ text: `🛒 ¡Comprar Ahora!`, callback_data: `b_${p.id}` }]] }
           })
         });
