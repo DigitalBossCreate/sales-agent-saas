@@ -14,9 +14,8 @@ if (!TELEGRAM_TOKEN) {
   console.error('⚠️ TELEGRAM_BOT_TOKEN no está configurado en las variables de entorno de Vercel.');
 }
 
-// 🔗 Dos QR globales por defecto, uno por método de pago (moneda local vs. cripto)
-const QR_POR_DEFECTO_TAKENOS = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr-takenos.jpg';
-const QR_POR_DEFECTO_BINANCE = 'https://nvzovzegagabdhdzqpgq.supabase.co/storage/v1/object/public/qr-pagos/default-qr-binance.jpg';
+// (Los QR por defecto ya no viven hardcodeados aquí: ahora se leen de config_bot.qr_pago_url /
+// config_bot.qr_binance_url, con un fallback final de texto garantizado si tampoco existen.)
 
 // --- Utilidades ---
 
@@ -167,15 +166,20 @@ export default async function handler(req, res) {
         let qrUrl = '';
         let nombreProd = 'Producto Digital';
         let precioProd = 50;
+        let cfg = null;
 
         try {
-          const { data: prod } = await supabase.from('productos').select('*').eq('id', prodId).single();
+          const [{ data: prod }, { data: cfgData }] = await Promise.all([
+            supabase.from('productos').select('*').eq('id', prodId).single(),
+            supabase.from('config_bot').select('*').limit(1).maybeSingle()
+          ]);
+          cfg = cfgData || null;
+
           if (prod) {
             nombreProd = prod.nombre || nombreProd;
             precioProd = prod.precio || precioProd;
 
-            // ✅ FIX: ya no cae en imagen_url genérica. Solo usa el QR propio del producto
-            // para el método elegido, o nada (y abajo se resuelve con el default correcto).
+            // Nivel 1: QR propio del producto
             if (method === 'takenos') {
               if (prod.qr_pago_url && typeof prod.qr_pago_url === 'string' && prod.qr_pago_url.trim().startsWith('http')) {
                 qrUrl = prod.qr_pago_url.trim();
@@ -186,14 +190,21 @@ export default async function handler(req, res) {
               }
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error('Error obteniendo producto/config para pago:', e.message);
+        }
 
-        // 🛡️ REGLA ABSOLUTA: si no hay QR propio, usa el default QUE CORRESPONDE al método elegido
-        if (!qrUrl || !qrUrl.startsWith('http')) {
-          qrUrl = (method === 'binance') ? QR_POR_DEFECTO_BINANCE : QR_POR_DEFECTO_TAKENOS;
+        // Nivel 2: QR global por defecto, guardado en config_bot (ya no hardcodeado en el código)
+        if ((!qrUrl || !qrUrl.startsWith('http')) && cfg) {
+          if (method === 'takenos' && cfg.qr_pago_url && cfg.qr_pago_url.startsWith('http')) {
+            qrUrl = cfg.qr_pago_url;
+          } else if (method === 'binance' && cfg.qr_binance_url && cfg.qr_binance_url.startsWith('http')) {
+            qrUrl = cfg.qr_binance_url;
+          }
         }
 
         // ✅ FIX: el pedido ahora guarda telegram_id y metodo_pago, necesarios para
+
         // poder aprobar el pago correcto más adelante sin afectar otros pedidos.
         try {
           await supabase.from('pedidos').insert([{
@@ -207,19 +218,59 @@ export default async function handler(req, res) {
           console.error('Error insertando pedido:', e.message);
         }
 
-        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            photo: qrUrl,
-            caption: `📲 *Escanea el QR de ${method.toUpperCase()} para ${nombreProd}.*\n\nHaz clic abajo cuando realices el pago:`,
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [[{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${prodId}` }]]
+        const botonNotificar = {
+          inline_keyboard: [[{ text: `🔔 Ya realicé el pago (Avisar al Admin)`, callback_data: `notify_admin_${chatId}_${prodId}` }]]
+        };
+
+        let entregadoConFoto = false;
+
+        if (qrUrl && qrUrl.startsWith('http')) {
+          const respPhoto = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              photo: qrUrl,
+              caption: `📲 *Escanea el QR de ${method.toUpperCase()} para ${nombreProd}.*\n\nHaz clic abajo cuando realices el pago:`,
+              parse_mode: 'Markdown',
+              reply_markup: botonNotificar
+            })
+          });
+
+          // ✅ FIX: si Telegram no pudo descargar/enviar la foto (URL rota, bucket privado, etc.),
+          // esto ya no falla en silencio: se loguea y se cae al Nivel 3 (texto garantizado) abajo.
+          const resultPhoto = await respPhoto.json().catch(() => null);
+          if (respPhoto.ok && resultPhoto && resultPhoto.ok !== false) {
+            entregadoConFoto = true;
+          } else {
+            console.error('sendPhoto falló, usando fallback de texto:', qrUrl, resultPhoto);
+          }
+        }
+
+        // 🛡️ Nivel 3: texto garantizado — no depende de ningún archivo externo.
+        // Se usa si no había ninguna qrUrl válida, o si el envío de la foto falló.
+        if (!entregadoConFoto) {
+          let datosPago = '';
+          if (method === 'takenos') {
+            if (cfg && cfg.banco_cuenta) {
+              datosPago = `🏦 *Cuenta:* ${cfg.banco_cuenta}\n👤 *Titular:* ${cfg.banco_titular || '(no configurado)'}`;
+            } else {
+              datosPago = `⚠️ _Datos bancarios no configurados aún. Contacta al soporte para completar tu pago._`;
+              await enviarMensaje(token, ADMIN_CHAT_ID || chatId, `🚨 *Sin QR ni datos bancarios configurados* para el método Takenos. Configura \`config_bot.banco_cuenta\` o el QR del producto \`${prodId}\`.`);
             }
-          })
-        });
+          } else {
+            if (cfg && cfg.binance_wallet) {
+              datosPago = `💳 *Wallet USDT (BEP20/TRC20 según corresponda):*\n\`${cfg.binance_wallet}\``;
+            } else {
+              datosPago = `⚠️ _Wallet de Binance no configurada aún. Contacta al soporte para completar tu pago._`;
+              await enviarMensaje(token, ADMIN_CHAT_ID || chatId, `🚨 *Sin QR ni wallet configurados* para el método Binance. Configura \`config_bot.binance_wallet\` o el QR del producto \`${prodId}\`.`);
+            }
+          }
+
+          await enviarMensaje(token, chatId, `📲 *Pago con ${method.toUpperCase()} para ${nombreProd}*\n\n${datosPago}\n\n💰 *Monto:* Bs. ${precioProd}\n\nHaz clic abajo cuando realices el pago:`, {
+            reply_markup: botonNotificar
+          });
+        }
       }
 
       else if (data.startsWith('notify_admin_')) {
@@ -257,7 +308,7 @@ export default async function handler(req, res) {
           if (prodData) {
             nombreProd = prodData.nombre;
             tipoEntrega = (prodData.tipo_entrega || 'manual').toLowerCase();
-            if (prodData.url_drive) entregableUrl = prodData.url_drive;
+            if (prodData.ubicacion_entrega) entregableUrl = prodData.ubicacion_entrega;
             else if (prodData.pdf_url) entregableUrl = prodData.pdf_url;
           }
 
@@ -351,37 +402,42 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true });
         }
 
+        // ✅ FIX: formato alineado a las columnas reales de tu tabla `productos`.
+        // NUEVO FORMATO: /nuevo Nombre|Precio|Prompt|Imagen|Video|Pdf|QR_Takenos|QR_Binance|TipoEntrega|UbicacionEntrega
         if (text.startsWith('/nuevo ')) {
           const partes = textOriginal.replace('/nuevo ', '').split('|');
           const nombreNuevo = partes[0] ? partes[0].trim() : 'Nuevo Producto';
           const precioNuevo = partes[1] && !isNaN(partes[1].trim()) ? parseFloat(partes[1].trim()) : 50;
           const promptNuevo = partes[2] ? partes[2].trim() : 'Acceso premium garantizado.';
           const img1 = partes[3] ? partes[3].trim() : null;
-          const img2 = partes[4] ? partes[4].trim() : null;
-          const vid1 = partes[5] ? partes[5].trim() : null;
-          const vid2 = partes[6] ? partes[6].trim() : null;
-          const pdfUrl = partes[7] ? partes[7].trim() : null;
-          const qrPago = partes[8] ? partes[8].trim() : null;
-          const tipoEntregaNuevo = partes[9] ? partes[9].trim().toLowerCase() : 'manual';
-          const urlDriveNuevo = partes[10] ? partes[10].trim() : null;
+          const vid1 = partes[4] ? partes[4].trim() : null;
+          const pdfUrl = partes[5] ? partes[5].trim() : null;
+          const qrTakenos = partes[6] ? partes[6].trim() : null;
+          const qrBinance = partes[7] ? partes[7].trim() : null;
+          const tipoEntregaNuevo = partes[8] ? partes[8].trim().toLowerCase() : 'manual';
+          const ubicacionEntregaNuevo = partes[9] ? partes[9].trim() : null;
 
           const nuevoObjeto = { nombre: nombreNuevo, precio: precioNuevo, prompt_ventas: promptNuevo, tipo_entrega: tipoEntregaNuevo };
           if (img1) nuevoObjeto.imagen_url = img1;
-          if (img2) nuevoObjeto.imagen_url_2 = img2;
           if (vid1) nuevoObjeto.video_url = vid1;
-          if (vid2) nuevoObjeto.video_url_2 = vid2;
           if (pdfUrl) nuevoObjeto.pdf_url = pdfUrl;
-          if (qrPago) {
-            nuevoObjeto.qr_pago_url = qrPago;
-            nuevoObjeto.qr_binance_url = qrPago;
-          }
-          if (urlDriveNuevo) nuevoObjeto.url_drive = urlDriveNuevo;
+          if (qrTakenos) nuevoObjeto.qr_pago_url = qrTakenos;
+          if (qrBinance) nuevoObjeto.qr_binance_url = qrBinance;
+          if (ubicacionEntregaNuevo) nuevoObjeto.ubicacion_entrega = ubicacionEntregaNuevo;
 
-          await supabase.from('productos').insert([nuevoObjeto]);
-          await enviarMensaje(token, chatId, `✅ *¡Producto creado con éxito!*\n📦 *${nombreNuevo}*`);
+          const { error: errNuevo } = await supabase.from('productos').insert([nuevoObjeto]);
+          if (errNuevo) {
+            console.error('Error creando producto:', errNuevo.message);
+            await enviarMensaje(token, chatId, `❌ *Error creando producto:*\n\`${errNuevo.message}\``);
+          } else {
+            await enviarMensaje(token, chatId, `✅ *¡Producto creado con éxito!*\n📦 *${nombreNuevo}*`);
+          }
           return res.status(200).json({ success: true });
         }
 
+        // ✅ FIX: formato alineado a las columnas reales de tu tabla `productos`.
+        // NUEVO FORMATO: /actualizar ID|Nombre|Precio|Prompt|Imagen|Video|Pdf|QR_Takenos|QR_Binance|TipoEntrega|UbicacionEntrega
+        // (deja cualquier campo vacío entre las barras "|" para no modificarlo)
         if (text.startsWith('/actualizar ')) {
           const partes = textOriginal.replace('/actualizar ', '').split('|');
           const prodId = partes[0] ? partes[0].trim() : '';
@@ -389,32 +445,32 @@ export default async function handler(req, res) {
           const precioAct = partes[2] && partes[2].trim() !== '' ? parseFloat(partes[2].trim()) : null;
           const promptAct = partes[3] ? partes[3].trim() : '';
           const img1Act = partes[4] ? partes[4].trim() : '';
-          const img2Act = partes[5] ? partes[5].trim() : '';
-          const vid1Act = partes[6] ? partes[6].trim() : '';
-          const vid2Act = partes[7] ? partes[7].trim() : '';
-          const pdfAct = partes[8] ? partes[8].trim() : '';
-          const qrAct = partes[9] ? partes[9].trim() : '';
-          const tipoAct = partes[10] ? partes[10].trim().toLowerCase() : '';
-          const urlDriveAct = partes[11] ? partes[11].trim() : '';
+          const vid1Act = partes[5] ? partes[5].trim() : '';
+          const pdfAct = partes[6] ? partes[6].trim() : '';
+          const qrTakenosAct = partes[7] ? partes[7].trim() : '';
+          const qrBinanceAct = partes[8] ? partes[8].trim() : '';
+          const tipoAct = partes[9] ? partes[9].trim().toLowerCase() : '';
+          const ubicacionEntregaAct = partes[10] ? partes[10].trim() : '';
 
           const datosActualizar = {};
           if (nombreAct) datosActualizar.nombre = nombreAct;
           if (precioAct !== null && !isNaN(precioAct)) datosActualizar.precio = precioAct;
           if (promptAct) datosActualizar.prompt_ventas = promptAct;
           if (img1Act) datosActualizar.imagen_url = img1Act;
-          if (img2Act) datosActualizar.imagen_url_2 = img2Act;
           if (vid1Act) datosActualizar.video_url = vid1Act;
-          if (vid2Act) datosActualizar.video_url_2 = vid2Act;
           if (pdfAct) datosActualizar.pdf_url = pdfAct;
-          if (qrAct) {
-            datosActualizar.qr_pago_url = qrAct;
-            datosActualizar.qr_binance_url = qrAct;
-          }
+          if (qrTakenosAct) datosActualizar.qr_pago_url = qrTakenosAct;
+          if (qrBinanceAct) datosActualizar.qr_binance_url = qrBinanceAct;
           if (tipoAct) datosActualizar.tipo_entrega = tipoAct;
-          if (urlDriveAct) datosActualizar.url_drive = urlDriveAct;
+          if (ubicacionEntregaAct) datosActualizar.ubicacion_entrega = ubicacionEntregaAct;
 
-          await supabase.from('productos').update(datosActualizar).eq('id', prodId);
-          await enviarMensaje(token, chatId, `🔄 *¡Producto actualizado!*\nID: \`${prodId}\``);
+          const { error: errAct } = await supabase.from('productos').update(datosActualizar).eq('id', prodId);
+          if (errAct) {
+            console.error('Error actualizando producto:', errAct.message);
+            await enviarMensaje(token, chatId, `❌ *Error actualizando producto:*\n\`${errAct.message}\``);
+          } else {
+            await enviarMensaje(token, chatId, `🔄 *¡Producto actualizado!*\nID: \`${prodId}\``);
+          }
           return res.status(200).json({ success: true });
         }
       }
