@@ -387,21 +387,24 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 🧠 DETECCIÓN INTELIGENTE DE SALUDOS Y PREGUNTAS DE CATÁLOGO GENERAL
+      // 🧠 DETECCIÓN INTELIGENTE Y FLEXIBLE DE SALUDOS / CATÁLOGO GENERAL
+      const textoLimpio = text.trim();
+      
       if (
-        text.includes('hola') || 
-        text.includes('buenos dias') || 
-        text.includes('buenos días') || 
-        text.includes('buenas tardes') || 
-        text.includes('buenas noches') || 
-        text.includes('que productos') || 
-        text.includes('qué productos') || 
-        text.includes('catalogo') || 
-        text.includes('catálogo') || 
-        text.includes('cursos') || 
-        text.includes('vendes') || 
-        text === 'start' || 
-        text === '/start'
+        textoLimpio.includes('hola') || 
+        textoLimpio.includes('buen') || 
+        textoLimpio.includes('buno') || 
+        textoLimpio.includes('tardes') || 
+        textoLimpio.includes('noches') || 
+        textoLimpio.includes('que producto') || 
+        textoLimpio.includes('catalogo') || 
+        textoLimpio.includes('catálogo') || 
+        textoLimpio.includes('curso') || 
+        textoLimpio.includes('vende') || 
+        textoLimpio.includes('info') || 
+        textoLimpio.includes('ayuda') || 
+        textoLimpio === 'start' || 
+        textoLimpio === '/start'
       ) {
         const productos = await obtenerProductosDirecto();
         
